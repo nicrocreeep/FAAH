@@ -27,40 +27,42 @@ def classificar_documento(texto_pagina):
     
     texto = texto_pagina.upper()
     
-    # 1. AVALIAÇÃO PSICOLÓGICA (Tem prioridade sobre ASO caso haja CRP/Psicologia)
-    if ("PSICOLÓGICA" in texto or "PSICOLOGICA" in texto or "PSICOSSOCIAL" in texto or " CRP " in texto or "CRP/" in texto) and "MÉDICO DO TRABALHO" not in texto:
-        return "AVALIAÇÃO PSICOLÓGICA"
-    
-    # 2. ASO (Verifica explicitamente o cabeçalho/título principal de Atestado)
-    if "ATESTADO DE SAÚDE OCUPACIONAL" in texto or "ATESTADO DE SAUDE OCUPACIONAL" in texto or texto.startswith("ASO"):
+    # 1. ASO (PRIORIDADE MÁXIMA)
+    # Se contiver a frase do cabeçalho oficial, classifica como ASO imediatamente,
+    # ignorando se "Psicológica" aparece listado no checklist de exames complementares.
+    if "ATESTADO DE SAÚDE OCUPACIONAL" in texto or "ATESTADO DE SAUDE OCUPACIONAL" in texto:
         return "ASO"
     
+    # 2. AVALIAÇÃO PSICOLÓGICA / PSICOSSOCIAL
+    # Só valida se for o documento/protocolo de avaliação propriamente dito
+    if "PROTOCOLO MÉDICO COMPLEMENTAR PARA AVALIAÇÃO PSICOSOCIAL" in texto or \
+       "AVALIAÇÃO PSICOLÓGICA" in texto or "AVALIAÇÃO PSICOSOCIAL" in texto or \
+       "QUESTIONÁRIO SRQ-20" in texto:
+        return "AVALIAÇÃO PSICOLÓGICA"
+
     # 3. EXAMES LABORATORIAIS DE URINA / SANGUE (Prioridade sobre termos ambíguos)
-    # Evita que 'sensibilidade analítica' classifique como exame visual
     analitos_urina_sangue = [
         "HIPÚRICO", "HIPURICO", "METILHIPÚRICO", "METILHIPURICO", 
         "CREATININA", "GAMA GT", "GLICOSE", "HEMOGRAMA", "PLAQUETAS",
-        "G/G CREATININA", "MG/DL", "U/L", "SANGUE VENOSO"
+        "G/G CREATININA", "MG/DL", "U/L", "SANGUE VENOSO", "TGP", "TGO"
     ]
     if any(analito in texto for analito in analitos_urina_sangue):
         return "EXAME HEMOGRAMA"
     
-    # 4. EXAME DE SENSIBILIDADE E CORES / ACUIDADE VISUAL
-    # Só valida se houver termos estritamente voltados à visão
-    if "ISHIHARA" in texto or "JAEGER" in texto or "TABELA DE JAEGER" in texto or "SENSIBILIDADE DE CONTRASTE" in texto:
+    # 4. EXAMES VISUAIS (Checagem por padrões específicos de acuidade/cores)
+    if "ACUIDADE VISUAL" in texto or "OD:20/" in texto or "OE:20/" in texto:
+        return "EXAME ACUIDADE VISUAL"
+    if "ISHIHARA" in texto or "JAEGER" in texto or "SENSIBILIDADE DE CONTRASTE" in texto:
         return "EXAME SENSIBILIDADE E CORES"
     
-    if "ACUIDADE VISUAL" in texto or "ACUIDADE" in texto or "OLHO DIREITO" in texto or "OLHO ESQUERDO" in texto:
-        return "EXAME ACUIDADE VISUAL"
-    
-    # 5. OUTROS EXAMES ESPECÍFICOS
+    # 5. OUTROS EXAMES ESPECÍFICOS E LAUDOS
     if "ENCAMINHAMENTO DA MEDICINA OCUPACIONAL" in texto or "ENCAMINHAMENTO" in texto:
         return "ENCAMINHAMENTO DA MEDICINA OCUPACIONAL"
     elif "FICHA CLÍNICA" in texto or "FICHA CLINICA" in texto or "ANAMNESE" in texto:
         return "FICHA CLÍNICA"
     elif "AUDIOMÉTRICO" in texto or "AUDIOMETRIA" in texto or "AUDIOGRAMA" in texto or "AVALIAÇÃO AUDIOLÓGICA" in texto:
         return "LAUDO AUDIOMÉTRICO"
-    elif "RADIOLÓGICA" in texto or "RADIOGRAFIA" in texto or "PNEUMOCONIOSE" in texto or "RAIO X" in texto or "RAIO-X" in texto or "RX " in texto:
+    elif "PNEUMOCONIOSE" in texto or "RAIO X DO TORAX PA-OIT" in texto or "RADIOLÓGICA" in texto or "RADIOGRAFIA" in texto or "RAIO X" in texto or "RAIO-X" in texto or "RX " in texto:
         return "LAUDO RAIO X TORAX OIT"
     elif "ROMBERG" in texto:
         return "EXAME ROMBERG"
@@ -74,7 +76,7 @@ def classificar_documento(texto_pagina):
         return "LAUDO ESPIROMETRIA"
     
     # Fallback Genérico
-    elif "RESULTADO" in texto or "EXAME" in texto or "LAUDO" in texto:
+    elif "RESULTADO DE EXAMES" in texto or "RESULTADO" in texto or "EXAME" in texto or "LAUDO" in texto:
         return "RESULTADO DE EXAMES"
     else:
         return None
@@ -83,7 +85,10 @@ def extrair_nome_colaborador(texto_pagina):
     if not texto_pagina:
         return None
         
+    # Padrões ajustados para extrair especificamente o texto limpo digitado
     padroes = [
+        r'2-\s*Nome:\s*\n?\s*\|\s*([A-ZÁÉÍÓÚÃÕÇ\s]{3,})',
+        r'Funcionário:\s*\d*\s*-\s*([A-ZÁÉÍÓÚÃÕÇ\s]{3,})',
         r'(?:NOME|COLABORADOR|PACIENTE|CANDIDATO|EMPREGADO|NOME DO TRABALHADOR|SR\(A\)):\s*([A-ZÁÉÍÓÚÃÕÇ\s]{3,})',
         r'NOME\s*:\s*([A-ZÁÉÍÓÚÃÕÇ\s]{3,})'
     ]
@@ -91,8 +96,8 @@ def extrair_nome_colaborador(texto_pagina):
         match = re.search(padrao, texto_pagina, re.IGNORECASE)
         if match:
             nome = match.group(1).split('\n')[0].strip()
-            # Corta termos que costumam vir na mesma linha do cabeçalho
-            nome = re.split(r'\b(SEXO|CARGO|CPF|RG|DATA|IDADE|PIS|CTPS|CADASTRO|ATEND)\b', nome, flags=re.IGNORECASE)[0]
+            # Corta termos de cabeçalho comuns na mesma linha
+            nome = re.split(r'\b(SEXO|CARGO|CPF|RG|DATA|IDADE|PIS|CTPS|CADASTRO|ATEND|UNIDADE|SETOR)\b', nome, flags=re.IGNORECASE)[0]
             nome_limpo = re.sub(r'[\\/*?:"<>|]', '', nome)
             nome_final = re.sub(r'\s+', ' ', nome_limpo).upper().strip()
             if len(nome_final) > 3:
