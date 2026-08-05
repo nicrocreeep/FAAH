@@ -5,7 +5,6 @@ import zipfile
 import streamlit as st
 import pdfplumber
 from pypdf import PdfReader, PdfWriter
-from PIL import Image
 import pytesseract
 
 st.set_page_config(page_title="Separador de Prontuários SST", layout="wide")
@@ -16,7 +15,6 @@ def extrair_texto_com_ocr(page_plumber):
     texto = page_plumber.extract_text() or ""
     if not texto.strip():
         try:
-            # Converte a página para imagem e roda OCR
             img = page_plumber.to_image(resolution=150).original
             texto = pytesseract.image_to_string(img, lang="por")
         except Exception:
@@ -32,15 +30,17 @@ def classificar_documento(texto_pagina):
     # Classificações Específicas (Ordem de prioridade alta)
     if "ATESTADO DE SAÚDE" in texto or "ATESTADO DE SAUDE" in texto or " ASO " in texto or texto.startswith("ASO"):
         return "ASO"
-    elif "ENCAMINHAMENTO" in texto:
+    elif "ENCAMINHAMENTO DA MEDICINA OCUPACIONAL" in texto or "ENCAMINHAMENTO" in texto:
         return "ENCAMINHAMENTO DA MEDICINA OCUPACIONAL"
     elif "FICHA CLÍNICA" in texto or "FICHA CLINICA" in texto or "ANAMNESE" in texto:
         return "FICHA CLÍNICA"
     elif "PSICOLÓGICA" in texto or "PSICOLOGICA" in texto or "PSICOSSOCIAL" in texto:
         return "AVALIAÇÃO PSICOLÓGICA"
-    elif "AUDIOMÉTRICO" in texto or "AUDIOMETRIA" in texto or "AUDIOGRAMA" in texto:
+    elif "AUDIOMÉTRICO" in texto or "AUDIOMETRIA" in texto or "AUDIOGRAMA" in texto or "AVALIAÇÃO AUDIOLÓGICA" in texto:
         return "LAUDO AUDIOMÉTRICO"
-    elif "ACUIDADE VISUAL" in texto or "VISUAL" in texto:
+    elif "RADIOLÓGICA" in texto or "RADIOGRAFIA" in texto or "PNEUMOCONIOSE" in texto or "RAIO X" in texto or "RAIO-X" in texto or "RX " in texto:
+        return "LAUDO RAIO X TORAX OIT"
+    elif "ACUIDADE VISUAL" in texto or "ACUIDADE" in texto:
         return "EXAME ACUIDADE VISUAL"
     elif "ROMBERG" in texto:
         return "EXAME ROMBERG"
@@ -54,9 +54,9 @@ def classificar_documento(texto_pagina):
         return "LAUDO ELETROCARDIOGRAMA"
     elif "ESPIROMETRIA" in texto:
         return "LAUDO ESPIROMETRIA"
-    elif "HEMOGRAMA" in texto or "LABORATORIAL" in texto:
+    elif "HEMOGRAMA" in texto or "LABORATORIAL" in texto or "PLAQUETAS" in texto:
         return "EXAME HEMOGRAMA"
-    # Regra Genérica (Apenas se nenhuma das específicas bater)
+    # Fallback Genérico
     elif "RESULTADO" in texto or "EXAME" in texto or "LAUDO" in texto:
         return "RESULTADO DE EXAMES"
     else:
@@ -67,15 +67,17 @@ def extrair_nome_colaborador(texto_pagina):
         return None
         
     padroes = [
-        r'(?:NOME|COLABORADOR|PACIENTE|CANDIDATO|EMPREGADO|NOME DO TRABALHADOR):\s*([A-ZÁÉÍÓÚÃÕÇ\s]{3,})',
+        r'(?:NOME|COLABORADOR|PACIENTE|CANDIDATO|EMPREGADO|NOME DO TRABALHADOR|SR\(A\)):\s*([A-ZÁÉÍÓÚÃÕÇ\s]{3,})',
         r'NOME\s*:\s*([A-ZÁÉÍÓÚÃÕÇ\s]{3,})'
     ]
     for padrao in padroes:
         match = re.search(padrao, texto_pagina, re.IGNORECASE)
         if match:
             nome = match.group(1).split('\n')[0].strip()
+            # Corta termos que costumam vir na mesma linha do cabeçalho
+            nome = re.split(r'\b(SEXO|CARGO|CPF|RG|DATA|IDADE|PIS|CTPS|CADASTRO|ATEND)\b', nome, flags=re.IGNORECASE)[0]
             nome_limpo = re.sub(r'[\\/*?:"<>|]', '', nome)
-            nome_final = re.sub(r'\s+', ' ', nome_limpo).upper()
+            nome_final = re.sub(r'\s+', ' ', nome_limpo).upper().strip()
             if len(nome_final) > 3:
                 return nome_final
     return None
@@ -103,7 +105,6 @@ if arquivo_enviado is not None:
                     if nome_detectado:
                         nome_colaborador_atual = nome_detectado
 
-                    # Se detectou um NOVO tipo de documento diferente do atual, fecha o arquivo anterior
                     if tipo_detectado and tipo_detectado != tipo_doc_atual and documento_atual:
                         writer = PdfWriter()
                         for p in documento_atual:
@@ -130,7 +131,6 @@ if arquivo_enviado is not None:
 
                     documento_atual.append(reader_pypdf.pages[idx])
 
-                # Grava o último documento pendente
                 if documento_atual:
                     writer = PdfWriter()
                     for p in documento_atual:
