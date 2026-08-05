@@ -1,14 +1,14 @@
 import os
 import re
+import io
+import zipfile
+import streamlit as st
 from pypdf import PdfReader, PdfWriter
 
-# Pasta única onde os arquivos divididos e renomeados serão salvos
-PASTA_SAIDA = r"./documentos_separados"
+st.title("Separador e Renomeador de Prontuários SST")
 
 def classificar_documento(texto_pagina):
-    """Identifica o tipo de documento pelas palavras-chave."""
     texto = texto_pagina.upper()
-    
     if "ASO - ATESTADO DE SAÚDE OCUPACIONAL" in texto or "ATESTADO DE SAUDE OCUPACIONAL" in texto:
         return "ASO"
     elif "ENCAMINHAMENTO DA MEDICINA OCUPACIONAL" in texto:
@@ -30,92 +30,91 @@ def classificar_documento(texto_pagina):
     elif "RESULTADO DE EXAMES" in texto or "LAUDO DE" in texto:
         return "RESULTADO DE EXAMES"
     else:
-        return None  # Continuação do documento anterior
+        return None
 
 def extrair_nome_colaborador(texto_pagina):
-    """Extrai o nome do colaborador via Regex."""
     padroes = [
         r'(?:Nome|COLABORADOR|Paciente|Candidato):\s*([A-ZÁÉÍÓÚÃÕÇ\s]{3,})',
         r'EMPREGADO:\s*([A-ZÁÉÍÓÚÃÕÇ\s]{3,})'
     ]
-    
     for padrao in padroes:
         match = re.search(padrao, texto_pagina, re.IGNORECASE)
         if match:
             nome = match.group(1).split('\n')[0].strip()
             nome_limpo = re.sub(r'[\\/*?:"<>|]', '', nome)
             return re.sub(r'\s+', ' ', nome_limpo).upper()
-            
     return None
 
-def gerar_nome_arquivo_unico(pasta_destino, nome_base):
-    """Aplica o sufixo (_1, _2) para vias repetidas do mesmo documento."""
-    caminho_completo = os.path.join(pasta_destino, f"{nome_base}.pdf")
-    if not os.path.exists(caminho_completo):
-        return caminho_completo
+arquivo_enviado = st.file_uploader("Envie o PDF consolidado do lote", type=["pdf"])
 
-    contador = 1
-    while True:
-        novo_caminho = os.path.join(pasta_destino, f"{nome_base}_{contador}.pdf")
-        if not os.path.exists(novo_caminho):
-            return novo_caminho
-        contador += 1
-
-def processar_pdf_prontuario(caminho_pdf_entrada):
-    # Cria a pasta local de saída se ela ainda não existir
-    if not os.path.exists(PASTA_SAIDA):
-        os.makedirs(PASTA_SAIDA)
-
-    reader = PdfReader(caminho_pdf_entrada)
-    
-    documento_atual = []
-    tipo_doc_atual = None
-    nome_colaborador_atual = None
-
-    for page in reader.pages:
-        texto = page.extract_text() or ""
+if arquivo_enviado is not None:
+    if st.button("Processar e Separar Documentos"):
+        reader = PdfReader(arquivo_enviado)
         
-        tipo_detectado = classificar_documento(texto)
-        nome_detectado = extrair_nome_colaborador(texto)
-
-        # Identifica se começou um novo documento
-        eh_novo_documento = (tipo_detectado is not None and tipo_detectado != tipo_doc_atual) or \
-                            (nome_detectado is not None and nome_detectado != nome_colaborador_atual and nome_colaborador_atual is not None)
-
-        if eh_novo_documento and documento_atual:
-            salvar_documento(documento_atual, tipo_doc_atual, nome_colaborador_atual)
+        # Buffer para criar o arquivo .ZIP na memória
+        zip_buffer = io.BytesIO()
+        
+        with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
             documento_atual = []
+            tipo_doc_atual = None
+            nome_colaborador_atual = None
+            contadores = {}
 
-        if tipo_detectado:
-            tipo_doc_atual = tipo_detectado
-        if nome_detectado:
-            nome_colaborador_atual = nome_detectado
+            for page in reader.pages:
+                texto = page.extract_text() or ""
+                tipo_detectado = classificar_documento(texto)
+                nome_detectado = extrair_nome_colaborador(texto)
 
-        documento_atual.append(page)
+                eh_novo = (tipo_detectado is not None and tipo_detectado != tipo_doc_atual) or \
+                          (nome_detectado is not None and nome_detectado != nome_colaborador_atual and nome_colaborador_atual is not None)
 
-    # Salva o último documento acumulado
-    if documento_atual:
-        salvar_documento(documento_atual, tipo_doc_atual, nome_colaborador_atual)
+                if eh_novo and documento_atual and tipo_doc_atual and nome_colaborador_atual:
+                    writer = PdfWriter()
+                    for p in documento_atual:
+                        writer.add_page(p)
+                    
+                    pdf_out = io.BytesIO()
+                    writer.write(pdf_out)
+                    
+                    chave_base = f"{tipo_doc_atual} - {nome_colaborador_atual}"
+                    if chave_base in contadores:
+                        contadores[chave_base] += 1
+                        nome_final = f"{chave_base}_{contadores[chave_base]}.pdf"
+                    else:
+                        contadores[chave_base] = 0
+                        nome_final = f"{chave_base}.pdf"
+                    
+                    zip_file.writestr(nome_final, pdf_out.getvalue())
+                    documento_atual = []
 
-def salvar_documento(paginas, tipo_doc, nome_colaborador):
-    if not nome_colaborador or not tipo_doc:
-        print("[Aviso] Página ignorada ou não identificada.")
-        return
+                if tipo_detectado:
+                    tipo_doc_atual = tipo_detectado
+                if nome_detectado:
+                    nome_colaborador_atual = nome_detectado
 
-    # Padrão do nome: TIPO DE DOCUMENTO - NOME DO COLABORADOR.pdf
-    nome_base_arquivo = f"{tipo_doc} - {nome_colaborador}"
-    caminho_final = gerar_nome_arquivo_unico(PASTA_SAIDA, nome_base_arquivo)
+                documento_atual.append(page)
 
-    writer = PdfWriter()
-    for pag in paginas:
-        writer.add_page(pag)
+            # Salva o último documento processado
+            if documento_atual and tipo_doc_atual and nome_colaborador_atual:
+                writer = PdfWriter()
+                for p in documento_atual:
+                    writer.add_page(p)
+                pdf_out = io.BytesIO()
+                writer.write(pdf_out)
+                
+                chave_base = f"{tipo_doc_atual} - {nome_colaborador_atual}"
+                if chave_base in contadores:
+                    contadores[chave_base] += 1
+                    nome_final = f"{chave_base}_{contadores[chave_base]}.pdf"
+                else:
+                    nome_final = f"{chave_base}.pdf"
+                
+                zip_file.writestr(nome_final, pdf_out.getvalue())
 
-    with open(caminho_final, "wb") as output_pdf:
-        writer.write(output_pdf)
-
-    print(f"[Sucesso] Arquivo separado gerado: {caminho_final}")
-
-# --- EXECUÇÃO ---
-if __name__ == "__main__":
-    pdf_lote = "prontuario_completo.pdf"  # Caminho do arquivo PDF completo
-    processar_pdf_prontuario(pdf_lote)
+        st.success("Documentos separados com sucesso!")
+        st.download_button(
+            label="Baixar Todos os Arquivos (.ZIP)",
+            data=zip_buffer.getvalue(),
+            file_name="prontuarios_separados.zip",
+            mime="application/zip"
+        )
