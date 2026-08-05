@@ -27,25 +27,43 @@ def classificar_documento(texto_pagina):
     
     texto = texto_pagina.upper()
     
-    # Classificações Específicas (Ordem de prioridade alta)
-    if "ATESTADO DE SAÚDE" in texto or "ATESTADO DE SAUDE" in texto or " ASO " in texto or texto.startswith("ASO"):
+    # 1. AVALIAÇÃO PSICOLÓGICA (Tem prioridade sobre ASO caso haja CRP/Psicologia)
+    if ("PSICOLÓGICA" in texto or "PSICOLOGICA" in texto or "PSICOSSOCIAL" in texto or " CRP " in texto or "CRP/" in texto) and "MÉDICO DO TRABALHO" not in texto:
+        return "AVALIAÇÃO PSICOLÓGICA"
+    
+    # 2. ASO (Verifica explicitamente o cabeçalho/título principal de Atestado)
+    if "ATESTADO DE SAÚDE OCUPACIONAL" in texto or "ATESTADO DE SAUDE OCUPACIONAL" in texto or texto.startswith("ASO"):
         return "ASO"
-    elif "ENCAMINHAMENTO DA MEDICINA OCUPACIONAL" in texto or "ENCAMINHAMENTO" in texto:
+    
+    # 3. EXAMES LABORATORIAIS DE URINA / SANGUE (Prioridade sobre termos ambíguos)
+    # Evita que 'sensibilidade analítica' classifique como exame visual
+    analitos_urina_sangue = [
+        "HIPÚRICO", "HIPURICO", "METILHIPÚRICO", "METILHIPURICO", 
+        "CREATININA", "GAMA GT", "GLICOSE", "HEMOGRAMA", "PLAQUETAS",
+        "G/G CREATININA", "MG/DL", "U/L", "SANGUE VENOSO"
+    ]
+    if any(analito in texto for analito in analitos_urina_sangue):
+        return "EXAME HEMOGRAMA"
+    
+    # 4. EXAME DE SENSIBILIDADE E CORES / ACUIDADE VISUAL
+    # Só valida se houver termos estritamente voltados à visão
+    if "ISHIHARA" in texto or "JAEGER" in texto or "TABELA DE JAEGER" in texto or "SENSIBILIDADE DE CONTRASTE" in texto:
+        return "EXAME SENSIBILIDADE E CORES"
+    
+    if "ACUIDADE VISUAL" in texto or "ACUIDADE" in texto or "OLHO DIREITO" in texto or "OLHO ESQUERDO" in texto:
+        return "EXAME ACUIDADE VISUAL"
+    
+    # 5. OUTROS EXAMES ESPECÍFICOS
+    if "ENCAMINHAMENTO DA MEDICINA OCUPACIONAL" in texto or "ENCAMINHAMENTO" in texto:
         return "ENCAMINHAMENTO DA MEDICINA OCUPACIONAL"
     elif "FICHA CLÍNICA" in texto or "FICHA CLINICA" in texto or "ANAMNESE" in texto:
         return "FICHA CLÍNICA"
-    elif "PSICOLÓGICA" in texto or "PSICOLOGICA" in texto or "PSICOSSOCIAL" in texto:
-        return "AVALIAÇÃO PSICOLÓGICA"
     elif "AUDIOMÉTRICO" in texto or "AUDIOMETRIA" in texto or "AUDIOGRAMA" in texto or "AVALIAÇÃO AUDIOLÓGICA" in texto:
         return "LAUDO AUDIOMÉTRICO"
     elif "RADIOLÓGICA" in texto or "RADIOGRAFIA" in texto or "PNEUMOCONIOSE" in texto or "RAIO X" in texto or "RAIO-X" in texto or "RX " in texto:
         return "LAUDO RAIO X TORAX OIT"
-    elif "ACUIDADE VISUAL" in texto or "ACUIDADE" in texto:
-        return "EXAME ACUIDADE VISUAL"
     elif "ROMBERG" in texto:
         return "EXAME ROMBERG"
-    elif "SENSIBILIDADE" in texto or "CONTRASTE" in texto or "CORES" in texto or "ISHIHARA" in texto:
-        return "EXAME SENSIBILIDADE E CORES"
     elif "TIPAGEM SANGUÍNEA" in texto or "TIPAGEM SANGUINEA" in texto or "ABO" in texto or "FATOR RH" in texto:
         return "LAUDO TIPAGEM SANGUINEA"
     elif "ELETROENCEFALOGRAMA" in texto or "EEG" in texto:
@@ -54,8 +72,7 @@ def classificar_documento(texto_pagina):
         return "LAUDO ELETROCARDIOGRAMA"
     elif "ESPIROMETRIA" in texto:
         return "LAUDO ESPIROMETRIA"
-    elif "HEMOGRAMA" in texto or "LABORATORIAL" in texto or "PLAQUETAS" in texto:
-        return "EXAME HEMOGRAMA"
+    
     # Fallback Genérico
     elif "RESULTADO" in texto or "EXAME" in texto or "LAUDO" in texto:
         return "RESULTADO DE EXAMES"
