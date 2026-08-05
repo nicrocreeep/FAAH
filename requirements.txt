@@ -3,3 +3,4 @@ pdfplumber
 pytesseract
 pdf2image
 Pillow
+pypdf
