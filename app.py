@@ -15,7 +15,8 @@ def extrair_texto_com_ocr(page_plumber):
     texto = page_plumber.extract_text() or ""
     if not texto.strip():
         try:
-            img = page_plumber.to_image(resolution=150).original
+            # Aumenta resolução para OCR mais preciso em documentos médicos
+            img = page_plumber.to_image(resolution=300).original
             texto = pytesseract.image_to_string(img, lang="por")
         except Exception:
             texto = ""
@@ -24,86 +25,179 @@ def extrair_texto_com_ocr(page_plumber):
 def classificar_documento(texto_pagina):
     if not texto_pagina:
         return None
-    
+        
     texto = texto_pagina.upper()
     
-    # 1. ASO (PRIORIDADE MÁXIMA)
-    # Se contiver a frase do cabeçalho oficial, classifica como ASO imediatamente,
-    # ignorando se "Psicológica" aparece listado no checklist de exames complementares.
-    if "ATESTADO DE SAÚDE OCUPACIONAL" in texto or "ATESTADO DE SAUDE OCUPACIONAL" in texto:
+    # ============================================
+    # PRIORIDADE 1: DOCUMENTOS ESTRUTURAIS/FICHAS
+    # (Devem vir antes porque contêm listas de exames)
+    # ============================================
+    if "FICHA CLÍNICA" in texto or "FICHA CLINICA" in texto or \
+       ("ANTECEDENTES FAMILIARES" in texto and "ANTECEDENTES PESSOAIS" in texto):
+        return "FICHA CLÍNICA"
+    
+    if "ATESTADO DE SAÚDE OCUPACIONAL" in texto or "ATESTADO DE SAUDE OCUPACIONAL" in texto or \
+       "ASO" in texto:
         return "ASO"
     
-    # 2. AVALIAÇÃO PSICOLÓGICA / PSICOSSOCIAL
-    # Só valida se for o documento/protocolo de avaliação propriamente dito
+    # ============================================
+    # PRIORIDADE 2: AVALIAÇÕES ESPECÍFICAS
+    # ============================================
     if "PROTOCOLO MÉDICO COMPLEMENTAR PARA AVALIAÇÃO PSICOSOCIAL" in texto or \
        "AVALIAÇÃO PSICOLÓGICA" in texto or "AVALIAÇÃO PSICOSOCIAL" in texto or \
-       "QUESTIONÁRIO SRQ-20" in texto:
+       "QUESTIONÁRIO SRQ-20" in texto or "PSICOSOCIAL" in texto:
         return "AVALIAÇÃO PSICOLÓGICA"
-
-    # 3. EXAMES LABORATORIAIS DE URINA / SANGUE (Prioridade sobre termos ambíguos)
-    analitos_urina_sangue = [
-        "HIPÚRICO", "HIPURICO", "METILHIPÚRICO", "METILHIPURICO", 
-        "CREATININA", "GAMA GT", "GLICOSE", "HEMOGRAMA", "PLAQUETAS",
-        "G/G CREATININA", "MG/DL", "U/L", "SANGUE VENOSO", "TGP", "TGO"
-    ]
-    if any(analito in texto for analito in analitos_urina_sangue):
-        return "EXAME HEMOGRAMA"
     
-    # 4. EXAMES VISUAIS (Checagem por padrões específicos de acuidade/cores)
-    if "ACUIDADE VISUAL" in texto or "OD:20/" in texto or "OE:20/" in texto:
+    if "ACUIDADE VISUAL" in texto or "OD:20/" in texto or "OE:20/" in texto or \
+       "SNELLEN" in texto or "TABELA DE SNELLEN" in texto:
         return "EXAME ACUIDADE VISUAL"
+        
     if "ISHIHARA" in texto or "JAEGER" in texto or "SENSIBILIDADE DE CONTRASTE" in texto:
         return "EXAME SENSIBILIDADE E CORES"
     
-    # 5. OUTROS EXAMES ESPECÍFICOS E LAUDOS
-    if "ENCAMINHAMENTO DA MEDICINA OCUPACIONAL" in texto or "ENCAMINHAMENTO" in texto:
-        return "ENCAMINHAMENTO DA MEDICINA OCUPACIONAL"
-    elif "FICHA CLÍNICA" in texto or "FICHA CLINICA" in texto or "ANAMNESE" in texto:
-        return "FICHA CLÍNICA"
-    elif "AUDIOMÉTRICO" in texto or "AUDIOMETRIA" in texto or "AUDIOGRAMA" in texto or "AVALIAÇÃO AUDIOLÓGICA" in texto:
-        return "LAUDO AUDIOMÉTRICO"
-    elif "PNEUMOCONIOSE" in texto or "RAIO X DO TORAX PA-OIT" in texto or "RADIOLÓGICA" in texto or "RADIOGRAFIA" in texto or "RAIO X" in texto or "RAIO-X" in texto or "RX " in texto:
-        return "LAUDO RAIO X TORAX OIT"
-    elif "ROMBERG" in texto:
-        return "EXAME ROMBERG"
-    elif "TIPAGEM SANGUÍNEA" in texto or "TIPAGEM SANGUINEA" in texto or "ABO" in texto or "FATOR RH" in texto:
-        return "LAUDO TIPAGEM SANGUINEA"
-    elif "ELETROENCEFALOGRAMA" in texto or "EEG" in texto:
+    # ============================================
+    # PRIORIDADE 3: EXAMES DE IMAGEM / LAUDOS ESPECÍFICOS
+    # ============================================
+    if "ELETROENCEFALOGRAMA" in texto or "EEG" in texto or \
+       ("RITMOS" in texto and "POTENCIAIS" in texto) or \
+       ("FREQUENCIA" in texto and "AMPLITUDE" in texto and "NEUROLOGIA" in texto):
         return "LAUDO ELETROENCEFALOGRAMA"
-    elif "ELETROCARDIOGRAMA" in texto or "ECG" in texto:
+    
+    if "ELETROCARDIOGRAMA" in texto or "ECG" in texto or \
+       "ELECTROCARDIOGRAMA" in texto or \
+       ("DERIVAÇÃO" in texto and "ONDA" in texto) or \
+       ("D1" in texto and "D2" in texto and "D3" in texto and "V1" in texto):
         return "LAUDO ELETROCARDIOGRAMA"
-    elif "ESPIROMETRIA" in texto:
+    
+    if "PNEUMOCONIOSE" in texto or "RAIO X DO TORAX PA-OIT" in texto or \
+       "RADIOLÓGICA" in texto or "RADIOGRAFIA" in texto or \
+       "RAIO X" in texto or "RAIO-X" in texto or "RX " in texto:
+        return "LAUDO RAIO X TORAX OIT"
+    
+    if "AUDIOMÉTRICO" in texto or "AUDIOMETRIA" in texto or "AUDIOGRAMA" in texto or \
+       "AVALIAÇÃO AUDIOLÓGICA" in texto:
+        return "LAUDO AUDIOMÉTRICO"
+    
+    if "ESPIROMETRIA" in texto:
         return "LAUDO ESPIROMETRIA"
     
-    # Fallback Genérico
-    elif "RESULTADO DE EXAMES" in texto or "RESULTADO" in texto or "EXAME" in texto or "LAUDO" in texto:
+    if "ROMBERG" in texto:
+        return "EXAME ROMBERG"
+    
+    if "TIPAGEM SANGUÍNEA" in texto or "TIPAGEM SANGUINEA" in texto or \
+       ("ABO" in texto and "RH" in texto):
+        return "LAUDO TIPAGEM SANGUINEA"
+    
+    # ============================================
+    # PRIORIDADE 4: EXAMES TOXICOLÓGICOS / URINA
+    # ============================================
+    # ÁCIDOS HIPÚRICOS (toxicológicos) - separar do hemograma
+    if "ÁCIDO HIPÚRICO" in texto or "ACIDO HIPURICO" in texto or \
+       "ÁCIDO METIL HIPÚRICO" in texto or "ACIDO METIL HIPURICO" in texto or \
+       "METILHIPÚRICO" in texto or "METILHIPURICO" in texto or \
+       "HIPÚRICO" in texto or "HIPURICO" in texto:
+        return "EXAME TOXICOLÓGICO ÁCIDOS"
+    
+    if "CREATININA" in texto and ("G/G" in texto or "G/G CREATININA" in texto):
+        return "EXAME TOXICOLÓGICO ÁCIDOS"
+    
+    # ============================================
+    # PRIORIDADE 5: EXAMES LABORATORIAIS SANGUÍNEOS
+    # ============================================
+    # Hemograma completo (evita falso positivo em fichas clínicas)
+    if "HEMOGRAMA COMPLETO" in texto or \
+       ("HEMOGRAMA" in texto and any(x in texto for x in ["ERITROGRAMA", "LEUCOGRAMA", "HEMACIAS", "HEMOGLOBINA", "HEMATOCRITO", "LEUCOCITOS", "PLAQUETAS"])):
+        return "EXAME HEMOGRAMA"
+    
+    # Bioquímica sanguínea (GAMA GT, TGO, TGP, Glicose) - mas sem Hemograma
+    analitos_bioquimica = ["GAMA GT", "GAMA-GLUTAMIL", "GLUTAMIL TRANSFERASE",
+                           "TGO", "ASPARTATO AMINOTRANSFERASE", 
+                           "TGP", "ALANINA AMINOTRANSFERASE",
+                           "GLICOSE"]
+    if any(a in texto for a in analitos_bioquimica):
+        return "EXAME BIOQUÍMICA SANGUÍNEA"
+    
+    # ============================================
+    # PRIORIDADE 6: ENCAMINHAMENTOS E GENÉRICOS
+    # ============================================
+    if "ENCAMINHAMENTO DA MEDICINA OCUPACIONAL" in texto or \
+       ("ENCAMINHAMENTO" in texto and "MEDICINA" in texto):
+        return "ENCAMINHAMENTO DA MEDICINA OCUPACIONAL"
+    
+    if "RESULTADO DE EXAMES" in texto:
         return "RESULTADO DE EXAMES"
-    else:
-        return None
+    
+    # Fallback
+    if "EXAME" in texto or "LAUDO" in texto:
+        return "RESULTADO DE EXAMES"
+    
+    return None
 
 def extrair_nome_colaborador(texto_pagina):
     if not texto_pagina:
         return None
         
-    # Padrões ajustados para extrair especificamente o texto limpo digitado
+    texto = texto_pagina.upper()
+    
+    # Padroes melhorados e ordenados por especificidade
     padroes = [
-        r'2-\s*Nome:\s*\n?\s*\|\s*([A-ZÁÉÍÓÚÃÕÇ\s]{3,})',
-        r'Funcionário:\s*\d*\s*-\s*([A-ZÁÉÍÓÚÃÕÇ\s]{3,})',
-        r'(?:NOME|COLABORADOR|PACIENTE|CANDIDATO|EMPREGADO|NOME DO TRABALHADOR|SR\(A\)):\s*([A-ZÁÉÍÓÚÃÕÇ\s]{3,})',
-        r'NOME\s*:\s*([A-ZÁÉÍÓÚÃÕÇ\s]{3,})'
+        # Formato: 193 - Antonio Marcos Siqueira de Souza
+        r'Funcionário\s*\(Código\s*/\s*Nome\)\s*\n?\s*\d+\s*/\s*([A-ZÁÉÍÓÚÃÕÇ\s]{3,60})(?=\n|Empresa|RG|CPF|$)',
+        r'Funcionário:\s*\d+\s*-\s*([A-ZÁÉÍÓÚÃÕÇ\s]{3,60})(?=\n|Unidade|CNPJ|RG|CPF|$)',
+        
+        # Formato SOC: Nome: 134497-ANTONIO MARCOS SIQUEIRA DE SOUZA
+        r'Nome\.{3,}\s*:\s*\d*[-–]?\s*([A-ZÁÉÍÓÚÃÕÇ\s]{3,60})(?=\n|CPF|Data|Sexo|$)',
+        r'Nome\.{3,}\s*:\s*([A-ZÁÉÍÓÚÃÕÇ\s]{3,60})(?=\n|CPF|Data|Sexo|$)',
+        
+        # Formato genérico
+        r'(?:NOME|COLABORADOR|PACIENTE|CANDIDATO|EMPREGADO|NOME DO TRABALHADOR|SR\(A\))\s*:\s*([A-ZÁÉÍÓÚÃÕÇ\s]{3,60})(?=\n|CPF|RG|DATA|SEXO|$)',
+        
+        # Cabeçalho de laudo
+        r'Paciente:\s*([A-ZÁÉÍÓÚÃÕÇ\s]{3,60})(?=\n|Data|CPF|RG|$)',
+        
+        # Nome no topo do ECG/EEG
+        r'^([A-ZÁÉÍÓÚÃÕÇ\s]{3,50})\s*-\s*Código\s+do\s+exame',
     ]
+    
     for padrao in padroes:
-        match = re.search(padrao, texto_pagina, re.IGNORECASE)
+        match = re.search(padrao, texto_pagina, re.IGNORECASE | re.MULTILINE)
         if match:
             nome = match.group(1).split('\n')[0].strip()
-            # Corta termos de cabeçalho comuns na mesma linha
-            nome = re.split(r'\b(SEXO|CARGO|CPF|RG|DATA|IDADE|PIS|CTPS|CADASTRO|ATEND|UNIDADE|SETOR)\b', nome, flags=re.IGNORECASE)[0]
+            # Remove sujeira comum
+            nome = re.split(r'\b(SEXO|CARGO|CPF|RG|DATA|IDADE|PIS|CTPS|CADASTRO|ATEND|UNIDADE|SETOR|EMPRESA|CNPJ)\b', nome, flags=re.IGNORECASE)[0]
             nome_limpo = re.sub(r'[\\/*?:"<>|]', '', nome)
             nome_final = re.sub(r'\s+', ' ', nome_limpo).upper().strip()
+            # Remove números soltos no início (códigos de funcionário)
+            nome_final = re.sub(r'^\d+[\s\-–]+', '', nome_final)
             if len(nome_final) > 3:
                 return nome_final
     return None
 
+def extrair_subtipo_exame(texto_pagina):
+    """Extrai o subtipo específico do exame para agrupamento mais fino."""
+    if not texto_pagina:
+        return None
+    texto = texto_pagina.upper()
+    
+    if "HEMOGRAMA COMPLETO" in texto:
+        return "HEMOGRAMA"
+    if "GAMA GT" in texto or "GAMA-GLUTAMIL" in texto:
+        return "GAMA_GT"
+    if "TGO" in texto:
+        return "TGO"
+    if "TGP" in texto:
+        return "TGP"
+    if "GLICOSE" in texto:
+        return "GLICOSE"
+    if "ACIDO HIPURICO" in texto or "ÁCIDO HIPÚRICO" in texto:
+        return "ACIDO_HIPURICO"
+    if "ACIDO METIL HIPURICO" in texto or "ÁCIDO METIL HIPÚRICO" in texto or "METILHIPURICO" in texto:
+        return "ACIDO_METIL_HIPURICO"
+    return None
+
+# ============================================
+# INTERFACE STREAMLIT
+# ============================================
 arquivo_enviado = st.file_uploader("Envie o PDF consolidado do lote", type=["pdf"])
 
 if arquivo_enviado is not None:
@@ -115,6 +209,7 @@ if arquivo_enviado is not None:
             with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
                 documento_atual = []
                 tipo_doc_atual = None
+                subtipo_atual = None
                 nome_colaborador_atual = "COLABORADOR_DESCONHECIDO"
                 contadores = {}
 
@@ -123,11 +218,34 @@ if arquivo_enviado is not None:
                     
                     tipo_detectado = classificar_documento(texto)
                     nome_detectado = extrair_nome_colaborador(texto)
+                    subtipo_detectado = extrair_subtipo_exame(texto)
 
                     if nome_detectado:
                         nome_colaborador_atual = nome_detectado
 
-                    if tipo_detectado and tipo_detectado != tipo_doc_atual and documento_atual:
+                    # Lógica de quebra de documento:
+                    # 1. Mudou o tipo principal OU
+                    # 2. Mudou o subtipo de exame laboratorial (ex: Hemograma -> GAMA GT) OU
+                    # 3. Mudou o nome do colaborador (quando temos documento_atual e nome diferente)
+                    deve_quebrar = False
+                    
+                    if tipo_detectado and tipo_detectado != tipo_doc_atual:
+                        deve_quebrar = True
+                    
+                    # Se é o mesmo tipo de exame laboratorial, verifica subtipo
+                    if tipo_detectado and tipo_doc_atual and \
+                       tipo_detectado in ["EXAME HEMOGRAMA", "EXAME BIOQUÍMICA SANGUÍNEA", "EXAME TOXICOLÓGICO ÁCIDOS"] and \
+                       tipo_detectado == tipo_doc_atual and \
+                       subtipo_detectado and subtipo_atual and \
+                       subtipo_detectado != subtipo_atual:
+                        deve_quebrar = True
+                    
+                    # Se mudou o nome no meio de um documento, quebra (exceto para ASO/Ficha que podem ter referências)
+                    if nome_detectado and documento_atual and nome_detectado != nome_colaborador_atual and \
+                       tipo_doc_atual not in ["ASO", "FICHA CLÍNICA"]:
+                        deve_quebrar = True
+
+                    if deve_quebrar and documento_atual:
                         writer = PdfWriter()
                         for p in documento_atual:
                             writer.add_page(p)
@@ -150,9 +268,12 @@ if arquivo_enviado is not None:
 
                     if tipo_detectado:
                         tipo_doc_atual = tipo_detectado
+                    if subtipo_detectado:
+                        subtipo_atual = subtipo_detectado
 
                     documento_atual.append(reader_pypdf.pages[idx])
 
+                # Fecha último documento
                 if documento_atual:
                     writer = PdfWriter()
                     for p in documento_atual:
