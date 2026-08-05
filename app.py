@@ -1,12 +1,27 @@
-import os
-import re
 import io
+import re
+import os
 import zipfile
 import streamlit as st
 import pdfplumber
 from pypdf import PdfReader, PdfWriter
+from PIL import Image
+import pytesseract
 
+st.set_page_config(page_title="Separador de Prontuários SST", layout="wide")
 st.title("Separador e Renomeador de Prontuários SST")
+
+def extrair_texto_com_ocr(page_plumber):
+    """Extrai texto diretamente ou utiliza OCR caso a página seja imagem/escaneada."""
+    texto = page_plumber.extract_text() or ""
+    if not texto.strip():
+        try:
+            # Converte a página para imagem e roda OCR
+            img = page_plumber.to_image(resolution=150).original
+            texto = pytesseract.image_to_string(img, lang="por")
+        except Exception:
+            texto = ""
+    return texto
 
 def classificar_documento(texto_pagina):
     if not texto_pagina:
@@ -14,16 +29,25 @@ def classificar_documento(texto_pagina):
     
     texto = texto_pagina.upper()
     
-    if "ATESTADO DE SAÚDE" in texto or "ATESTADO DE SAUDE" in texto or "ASO" in texto:
+    # Classificações Específicas (Ordem de prioridade alta)
+    if "ATESTADO DE SAÚDE" in texto or "ATESTADO DE SAUDE" in texto or " ASO " in texto or texto.startswith("ASO"):
         return "ASO"
     elif "ENCAMINHAMENTO" in texto:
         return "ENCAMINHAMENTO DA MEDICINA OCUPACIONAL"
     elif "FICHA CLÍNICA" in texto or "FICHA CLINICA" in texto or "ANAMNESE" in texto:
         return "FICHA CLÍNICA"
-    elif "PSICOLÓGICA" in texto or "PSICOLOGICA" in texto:
+    elif "PSICOLÓGICA" in texto or "PSICOLOGICA" in texto or "PSICOSSOCIAL" in texto:
         return "AVALIAÇÃO PSICOLÓGICA"
     elif "AUDIOMÉTRICO" in texto or "AUDIOMETRIA" in texto or "AUDIOGRAMA" in texto:
         return "LAUDO AUDIOMÉTRICO"
+    elif "ACUIDADE VISUAL" in texto or "VISUAL" in texto:
+        return "EXAME ACUIDADE VISUAL"
+    elif "ROMBERG" in texto:
+        return "EXAME ROMBERG"
+    elif "SENSIBILIDADE" in texto or "CONTRASTE" in texto or "CORES" in texto or "ISHIHARA" in texto:
+        return "EXAME SENSIBILIDADE E CORES"
+    elif "TIPAGEM SANGUÍNEA" in texto or "TIPAGEM SANGUINEA" in texto or "ABO" in texto or "FATOR RH" in texto:
+        return "LAUDO TIPAGEM SANGUINEA"
     elif "ELETROENCEFALOGRAMA" in texto or "EEG" in texto:
         return "LAUDO ELETROENCEFALOGRAMA"
     elif "ELETROCARDIOGRAMA" in texto or "ECG" in texto:
@@ -32,6 +56,7 @@ def classificar_documento(texto_pagina):
         return "LAUDO ESPIROMETRIA"
     elif "HEMOGRAMA" in texto or "LABORATORIAL" in texto:
         return "EXAME HEMOGRAMA"
+    # Regra Genérica (Apenas se nenhuma das específicas bater)
     elif "RESULTADO" in texto or "EXAME" in texto or "LAUDO" in texto:
         return "RESULTADO DE EXAMES"
     else:
@@ -59,10 +84,7 @@ arquivo_enviado = st.file_uploader("Envie o PDF consolidado do lote", type=["pdf
 
 if arquivo_enviado is not None:
     if st.button("Processar e Separar Documentos"):
-        # Carrega o PDF via pypdf para manipulação de páginas
         reader_pypdf = PdfReader(arquivo_enviado)
-        
-        # Buffer do arquivo .ZIP
         zip_buffer = io.BytesIO()
         
         with pdfplumber.open(arquivo_enviado) as pdf_plumber:
@@ -73,7 +95,7 @@ if arquivo_enviado is not None:
                 contadores = {}
 
                 for idx, page_plumber in enumerate(pdf_plumber.pages):
-                    texto = page_plumber.extract_text() or ""
+                    texto = extrair_texto_com_ocr(page_plumber)
                     
                     tipo_detectado = classificar_documento(texto)
                     nome_detectado = extrair_nome_colaborador(texto)
@@ -81,7 +103,7 @@ if arquivo_enviado is not None:
                     if nome_detectado:
                         nome_colaborador_atual = nome_detectado
 
-                    # Se detectou um NOVO tipo de documento, quebra o arquivo anterior
+                    # Se detectou um NOVO tipo de documento diferente do atual, fecha o arquivo anterior
                     if tipo_detectado and tipo_detectado != tipo_doc_atual and documento_atual:
                         writer = PdfWriter()
                         for p in documento_atual:
@@ -106,10 +128,9 @@ if arquivo_enviado is not None:
                     if tipo_detectado:
                         tipo_doc_atual = tipo_detectado
 
-                    # Adiciona a página correspondente no pypdf
                     documento_atual.append(reader_pypdf.pages[idx])
 
-                # Grava as páginas finais restantes
+                # Grava o último documento pendente
                 if documento_atual:
                     writer = PdfWriter()
                     for p in documento_atual:
