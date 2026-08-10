@@ -13,7 +13,6 @@ st.title("Separador e Renomeador de Prontuários SST")
 def extrair_texto_com_ocr(page_plumber):
     """Extrai texto diretamente ou utiliza OCR caso a página seja imagem/escaneada."""
     texto = page_plumber.extract_text() or ""
-    # Se o texto for muito curto, provavelmente é imagem ou OCR falhou parcialmente
     if len(texto.strip()) < 80:
         try:
             img = page_plumber.to_image(resolution=300).original
@@ -32,7 +31,6 @@ def classificar_documento(texto_pagina):
     
     # ============================================
     # PRIORIDADE 1: DOCUMENTOS ESTRUTURAIS/FICHAS
-    # (Devem vir ANTES porque contêm listas de exames solicitados/agendados)
     # ============================================
     if "ENCAMINHAMENTO DA MEDICINA OCUPACIONAL" in texto or \
        ("ENCAMINHAMENTO" in texto and "MEDICINA" in texto) or \
@@ -56,7 +54,6 @@ def classificar_documento(texto_pagina):
        "QUESTIONÁRIO SRQ-20" in texto:
         return "AVALIAÇÃO PSICOLÓGICA"
 
-    # Avaliação do Equilíbrio / Vestibular / Cerebelar (inclui Romberg, VPPB, etc.)
     if any(x in texto for x in [
         "AVALIAÇÃO DO EQUILÍBRIO", "AVALIACAO DO EQUILIBRIO",
         "FUNÇÃO CEREBELAR", "FUNCAO CEREBELAR",
@@ -110,16 +107,19 @@ def classificar_documento(texto_pagina):
         return "LAUDO TIPAGEM SANGUINEA"
     
     # ============================================
-    # PRIORIDADE 5: EXAMES TOXICOLÓGICOS / URINA
+    # PRIORIDADE 5: EXAMES TOXICOLÓGICOS / METAIS / URINA
     # ============================================
     if any(x in texto for x in [
         "ÁCIDO HIPÚRICO", "ACIDO HIPURICO", "ÁCIDO METIL HIPÚRICO", 
-        "ACIDO METIL HIPURICO", "METILHIPÚRICO", "METILHIPURICO", "HIPÚRICO", "HIPURICO"
+        "ACIDO METIL HIPURICO", "METILHIPÚRICO", "METILHIPURICO", "HIPÚRICO", "HIPURICO",
+        "CROMO", "MANGANÊS", "MANGANES", "CHUMBO", "COBALTO", "CADMIO", "CÁDMIO",
+        "MERCÚRIO", "MERCURIO", "ARSÊNICO", "ARSENICO", "NÍQUEL", "NIQUEL",
+        "FENOL", "FÊNOL", "TRICLOROCOMPOSTOS"
     ]):
-        return "EXAME TOXICOLÓGICO ÁCIDOS"
+        return "EXAME TOXICOLÓGICO ÁCIDOS E METAIS"
     
-    if "CREATININA" in texto and ("G/G" in texto or "G/G CREATININA" in texto):
-        return "EXAME TOXICOLÓGICO ÁCIDOS"
+    if "CREATININA" in texto and ("G/G" in texto or "G/G CREATININA" in texto or "INÍCIO DE JORNADA" in texto):
+        return "EXAME TOXICOLÓGICO ÁCIDOS E METAIS"
     
     # ============================================
     # PRIORIDADE 6: EXAMES LABORATORIAIS SANGUÍNEOS
@@ -142,7 +142,7 @@ def classificar_documento(texto_pagina):
     # ============================================
     # PRIORIDADE 7: GENÉRICOS DE EXAMES
     # ============================================
-    if "RESULTADO DE EXAMES" in texto:
+    if "RESULTADO DE EXAMES" in texto or "LABORATÓRIO" in texto or "LABORATORIO" in texto:
         return "RESULTADO DE EXAMES"
     
     if "EXAME" in texto or "LAUDO" in texto:
@@ -170,6 +170,10 @@ def extrair_subtipo_exame(texto_pagina):
         return "GLICOSE"
     if any(x in texto for x in ["ACIDO HIPURICO", "ÁCIDO HIPÚRICO", "METILHIPURICO", "METILHIPÚRICO"]):
         return "ACIDOS_HIPURICOS"
+    if "CROMO" in texto:
+        return "CROMO"
+    if "MANGANÊS" in texto or "MANGANES" in texto:
+        return "MANGANES"
     if "GRUPO SANGUINEO" in texto or "GRUPO SANGUÍNEO" in texto or ("ABO" in texto and "RH" in texto):
         return "TIPAGEM_SANGUINEA"
     return None
@@ -180,16 +184,22 @@ def extrair_nome_colaborador(texto_pagina):
         
     texto = texto_pagina.upper()
     
+    # Expressões com dois-pontos estritamente obrigatórios para evitar falsos positivos no corpo de textos
     padroes = [
-        r'AVALIADO[:\s]+([A-ZÁÉÍÓÚÃÕÇÂÊÎÔÛ\s]{3,60})(?=\n|DATA|CARGO|CPF|RG|$)',
-        r'FUNCIONÁRIO/PACIENTE[:\s]+([A-ZÁÉÍÓÚÃÕÇÂÊÎÔÛ\s]{3,60})(?=\n|DATA|IDADE|SEXO|EMPRESA|$)',
-        r'FUNCIONÁRIO\s*\(CÓDIGO\s*/\s*NOME\)\s*\n?\s*\d+\s*/\s*([A-ZÁÉÍÓÚÃÕÇÂÊÎÔÛ\s]{3,60})(?=\n|EMPRESA|RG|CPF|$)',
-        r'FUNCIONÁRIO:\s*\d+\s*-\s*([A-ZÁÉÍÓÚÃÕÇÂÊÎÔÛ\s]{3,60})(?=\n|UNIDADE|CNPJ|RG|CPF|$)',
-        r'NOME\.{2,}\s*:\s*\d*[-–]?\s*([A-ZÁÉÍÓÚÃÕÇÂÊÎÔÛ\s]{3,60})(?=\n|CPF|DATA|SEXO|$)',
-        r'NOME\s*:\s*([A-ZÁÉÍÓÚÃÕÇÂÊÎÔÛ\s]{3,60})(?=\n|CPF|RG|DATA|SEXO|EMPRESA|$)',
-        r'(?:COLABORADOR|PACIENTE|CANDIDATO|EMPREGADO|NOME DO TRABALHADOR|SR\(A\))\s*:\s*([A-ZÁÉÍÓÚÃÕÇÂÊÎÔÛ\s]{3,60})(?=\n|CPF|RG|DATA|SEXO|$)',
-        r'PACIENTE\s*:\s*([A-ZÁÉÍÓÚÃÕÇÂÊÎÔÛ\s]{3,60})(?=\n|DATA|CPF|RG|IDADE|SEXO|$)',
+        r'AVALIADO\s*:\s*([A-ZÁÉÍÓÚÃÕÇÂÊÎÔÛ\s]{3,60})(?=\n|DATA|CARGO|CPF|RG|\.|$)',
+        r'PACIENTE\s*:\s*([A-ZÁÉÍÓÚÃÕÇÂÊÎÔÛ\s]{3,60})(?=\n|DATA|CPF|RG|IDADE|SEXO|CONVÊNIO|CONVENIO|\.|$)',
+        r'NOME\s*:\s*([A-ZÁÉÍÓÚÃÕÇÂÊÎÔÛ\s]{3,60})(?=\n|CPF|RG|DATA|SEXO|EMPRESA|\.|$)',
+        r'NOME\.{2,}\s*:\s*\d*[-–]?\s*([A-ZÁÉÍÓÚÃÕÇÂÊÎÔÛ\s]{3,60})(?=\n|CPF|DATA|SEXO|\.|$)',
+        r'FUNCIONÁRIO/PACIENTE\s*:\s*([A-ZÁÉÍÓÚÃÕÇÂÊÎÔÛ\s]{3,60})(?=\n|DATA|IDADE|SEXO|EMPRESA|\.|$)',
+        r'FUNCIONÁRIO\s*\(CÓDIGO\s*/\s*NOME\)\s*\n?\s*\d+\s*/\s*([A-ZÁÉÍÓÚÃÕÇÂÊÎÔÛ\s]{3,60})(?=\n|EMPRESA|RG|CPF|\.|$)',
+        r'FUNCIONÁRIO:\s*\d+\s*-\s*([A-ZÁÉÍÓÚÃÕÇÂÊÎÔÛ\s]{3,60})(?=\n|UNIDADE|CNPJ|RG|CPF|\.|$)',
+        r'(?:COLABORADOR|CANDIDATO|EMPREGADO|NOME DO TRABALHADOR|SR\(A\))\s*:\s*([A-ZÁÉÍÓÚÃÕÇÂÊÎÔÛ\s]{3,60})(?=\n|CPF|RG|DATA|SEXO|\.|$)',
         r'^([A-ZÁÉÍÓÚÃÕÇÂÊÎÔÛ\s]{3,50})\s*-\s*CÓDIGO\s+DO\s+EXAME',
+    ]
+    
+    palavras_proibidas = [
+        "APRESENTOU", "DESEMPENHO", "RESULTADO", "EXAME", "DENTRO", "SOLICITANTE", 
+        "RELATOR", "LAUDO", "DECLARA", "AVALIADO", "CONCLUSAO", "CONCLUSÃO", "PROTOCOLO"
     ]
     
     for padrao in padroes:
@@ -198,14 +208,17 @@ def extrair_nome_colaborador(texto_pagina):
             nome = match.group(1).split('\n')[0].strip()
             stops = ['SEXO', 'CARGO', 'CPF', 'RG', 'DATA', 'IDADE', 'PIS', 'CTPS', 
                      'CADASTRO', 'ATEND', 'UNIDADE', 'SETOR', 'EMPRESA', 'CNPJ', 
-                     'MÉDICO', 'MEDICO', 'PROTOCOLO', 'CONVÊNIO', 'CONVENIO']
+                     'MÉDICO', 'MEDICO', 'PROTOCOLO', 'CONVÊNIO', 'CONVENIO', 'EMISSÃO', 'EMISSAO']
             for stop in stops:
                 nome = re.split(rf'\b{stop}\b', nome, flags=re.IGNORECASE)[0]
             nome_limpo = re.sub(r'[\\/*?:"<>|]', '', nome)
             nome_final = re.sub(r'\s+', ' ', nome_limpo).upper().strip()
             nome_final = re.sub(r'^\d+[\s\-–]+', '', nome_final)
-            if len(nome_final) > 3:
+            
+            # Validação para ignorar trechos de texto que não são nomes de pessoas
+            if len(nome_final) > 3 and not any(p in nome_final for p in palavras_proibidas):
                 return nome_final
+                
     return None
 
 # ============================================
@@ -245,7 +258,7 @@ if arquivo_enviado is not None:
                         elif (tipo_detectado and tipo_doc_atual and 
                               tipo_detectado == tipo_doc_atual and
                               tipo_detectado in ["EXAME HEMOGRAMA", "EXAME BIOQUÍMICA SANGUÍNEA", 
-                                                "EXAME TOXICOLÓGICO ÁCIDOS", "LAUDO TIPAGEM SANGUINEA"]):
+                                                "EXAME TOXICOLÓGICO ÁCIDOS E METAIS", "LAUDO TIPAGEM SANGUINEA"]):
                             if subtipo_detectado and subtipo_atual and subtipo_detectado != subtipo_atual:
                                 deve_quebrar = True
                         
