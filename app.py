@@ -10,18 +10,45 @@ import pytesseract
 st.set_page_config(page_title="Separador de Prontuários SST", layout="wide")
 st.title("Separador e Renomeador de Prontuários SST")
 
+# ============================================================
+# NOVO: Lista de derivações de ECG para detecção por padrão
+# ============================================================
+DERIVACOES_ECG = ["D1", "D2", "D3", "AVR", "AVL", "AVF", "V1", "V2", "V3", "V4", "V5", "V6"]
+
 def extrair_texto_com_ocr(page_plumber):
     """Extrai texto diretamente ou utiliza OCR caso a página seja imagem/escaneada."""
     texto = page_plumber.extract_text() or ""
-    if len(texto.strip()) < 80:
+    
+    # CORREÇÃO 1: Reduzir threshold para 30 (em vez de 80) para acionar OCR mais cedo
+    # Se o texto for muito curto OU não contiver palavras legíveis, forçar OCR
+    texto_limpo = texto.strip().replace('\n', '').replace(' ', '')
+    deve_fazer_ocr = len(texto.strip()) < 30 or len(texto_limpo) < 10
+    
+    if deve_fazer_ocr:
         try:
             img = page_plumber.to_image(resolution=300).original
-            texto_ocr = pytesseract.image_to_string(img, lang="por")
+            # CORREÇÃO 2: Tentar português primeiro, se falhar, fallback para inglês
+            try:
+                texto_ocr = pytesseract.image_to_string(img, lang="por")
+            except Exception:
+                texto_ocr = pytesseract.image_to_string(img, lang="eng")
+            
             if len(texto_ocr.strip()) > len(texto.strip()):
                 texto = texto_ocr
         except Exception:
             pass
     return texto
+
+
+def detectar_ecg_por_derivacoes(texto):
+    """Detecta ECG traçado pela presença de múltiplas derivações + unidades."""
+    texto_upper = texto.upper()
+    # Contar quantas derivações aparecem no texto
+    derivacoes_encontradas = [d for d in DERIVACOES_ECG if d in texto_upper]
+    # Se tiver pelo menos 3 derivações E (10mm/mV ou 25mm/s ou FC:), é ECG
+    tem_unidades = any(u in texto_upper for u in ["10MM/MV", "10MM/MV", "25MM/S", "MM/S", "FC:"])
+    return len(derivacoes_encontradas) >= 3 and tem_unidades
+
 
 def classificar_documento(texto_pagina):
     if not texto_pagina:
@@ -30,17 +57,13 @@ def classificar_documento(texto_pagina):
     texto = texto_pagina.upper()
     
     # ============================================
-    # PRIORIDADE 1: ASO vs AVALIAÇÃO PSICOLÓGICA (A SOLUÇÃO DO CONFLITO)
+    # PRIORIDADE 1: ASO vs AVALIAÇÃO PSICOLÓGICA
     # ============================================
-    # Regra do ASO: Tem o título de ASO, MAS a frase "finalidade o atestado" (típica do laudo psicológico) 
-    # NÃO pode estar presente. Assim, o laudo não é "roubado" pelo ASO.
     if ("ATESTADO DE SAÚDE OCUPACIONAL" in texto or "ATESTADO DE SAUDE OCUPACIONAL" in texto) and \
        "FINALIDADE O ATESTADO" not in texto and \
        "FINALIDADE DE ATESTADO" not in texto:
         return "ASO"
 
-    # Regra da Avaliação: Fica logo abaixo. Se for um ASO de verdade, já foi pego no if acima 
-    # e não vai ser afetado pelo "Aval. Psicológica Psicossocial" no meio dos exames.
     if "AVALIAÇÃO PSICOLÓGICA" in texto or "AVALIACAO PSICOLOGICA" in texto or \
        "PROTOCOLO MÉDICO COMPLEMENTAR PARA AVALIAÇÃO PSICOSOCIAL" in texto or \
        "AVALIAÇÃO PSICOSOCIAL" in texto or "AVALIACAO PSICOSSOCIAL" in texto or \
@@ -91,10 +114,25 @@ def classificar_documento(texto_pagina):
        ("HIPERPNEIA" in texto and "POTENCIAIS" in texto):
         return "LAUDO ELETROENCEFALOGRAMA"
     
+    # ============================================
+    # CORREÇÃO 3: ELETROCARDIOGRAMA — detecção muito mais robusta
+    # ============================================
+    # A) Palavras-chave tradicionais (laudo textual)
     if "ELETROCARDIOGRAMA" in texto or "ECG" in texto or \
        "LAUDO DE ELETROCARDIOGRAMA" in texto or \
        ("RITMO SINUSAL" in texto and "EIXO QRS" in texto) or \
        ("ECG DE REPOUSO" in texto):
+        return "LAUDO ELETROCARDIOGRAMA"
+    
+    # B) Traçado gráfico de ECG (imagens/escaneados)
+    # Padrão 1: FC: + mm/s (cabeçalho de ECG digital)
+    if "FC:" in texto and ("MM/S" in texto or "MM/MV" in texto or "25MM" in texto):
+        return "LAUDO ELETROCARDIOGRAMA"
+    # Padrão 2: Software/cardios + código de exame
+    if "DYNAMIS" in texto and "CARDIOS" in texto:
+        return "LAUDO ELETROCARDIOGRAMA"
+    # Padrão 3: Múltiplas derivações de ECG no traçado
+    if detectar_ecg_por_derivacoes(texto_pagina):
         return "LAUDO ELETROCARDIOGRAMA"
     
     if "PNEUMOCONIOSE" in texto or "RAIO X DO TORAX PA-OIT" in texto or \
@@ -102,9 +140,17 @@ def classificar_documento(texto_pagina):
        "RADIOGRÁFICO" in texto or "RAIO X" in texto or "RAIO-X" in texto or "RX " in texto:
         return "LAUDO RAIO X TORAX OIT"
     
-    if "AUDIOMÉTRICO" in texto or "AUDIOMETRIA" in texto or "AUDIOGRAMA" in texto or \
-       "AVALIAÇÃO AUDIOLÓGICA" in texto or "LIMIARES AUDITIVOS" in texto or \
-       "AUDIOMETRIA TONAL" in texto:
+    # ============================================
+    # CORREÇÃO 4: AUDIOMETRIA — palavras-chave OCR-friendly
+    # ============================================
+    if any(x in texto for x in [
+        "AUDIOMÉTRICO", "AUDIOMETRIA", "AUDIOGRAMA",
+        "AVALIAÇÃO AUDIOLÓGICA", "AVALIACAO AUDIOLOGICA",
+        "LIMIARES AUDITIVOS", "LIMIARES TONAIS", "LIMIAR TONAL",
+        "MÉDIAS TRITONAIS", "MEDIAS TRITONAIS", "TRITONAIS",
+        "AUDITEC",  # fabricante do aparelho (muito específico)
+        "REPOUSO AUDITIVO", "AVALIAÇÃO AUDITIVA", "AVALIACAO AUDITIVA"
+    ]) or re.search(r'AUDIO[MN]', texto):  # captura "Audiometria" com erro de OCR
         return "LAUDO AUDIOMÉTRICO"
     
     if "ESPIROMETRIA" in texto or ("FEV1" in texto and "FVC" in texto):
@@ -116,7 +162,7 @@ def classificar_documento(texto_pagina):
         return "LAUDO TIPAGEM SANGUINEA"
     
     # ============================================
-    # PRIORIDADE 6: EXAMES LABORATORIAIS (HEMOGRAMA / BIOQUÍMICA / TOXICOLÓGICO)
+    # PRIORIDADE 6: EXAMES LABORATORIAIS
     # ============================================
     if any(x in texto for x in [
         "HEMOGRAMA", "ERITOGRAMA", "LEUCOGRAMA",
@@ -154,6 +200,7 @@ def classificar_documento(texto_pagina):
     
     return None
 
+
 def extrair_subtipo_exame(texto_pagina):
     if not texto_pagina:
         return None
@@ -180,6 +227,7 @@ def extrair_subtipo_exame(texto_pagina):
     if "GRUPO SANGUINEO" in texto or "GRUPO SANGUÍNEO" in texto or ("ABO" in texto and "RH" in texto):
         return "TIPAGEM_SANGUINEA"
     return None
+
 
 def extrair_nome_colaborador(texto_pagina):
     if not texto_pagina:
@@ -222,6 +270,7 @@ def extrair_nome_colaborador(texto_pagina):
                 
     return None
 
+
 # ============================================
 # INTERFACE STREAMLIT
 # ============================================
@@ -253,7 +302,12 @@ if arquivo_enviado is not None:
                     deve_quebrar = False
                     
                     if documento_atual:
-                        if tipo_detectado and tipo_doc_atual and tipo_detectado != tipo_doc_atual:
+                        # CORREÇÃO 5: Se a página atual não tem tipo detectado (None)
+                        # mas o documento em andamento é ECG, mantém junto (não quebra)
+                        if tipo_detectado is None and tipo_doc_atual == "LAUDO ELETROCARDIOGRAMA":
+                            deve_quebrar = False
+                        
+                        elif tipo_detectado and tipo_doc_atual and tipo_detectado != tipo_doc_atual:
                             deve_quebrar = True
                         
                         elif (tipo_detectado and tipo_doc_atual and 
