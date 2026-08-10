@@ -30,13 +30,21 @@ def classificar_documento(texto_pagina):
     texto = texto_pagina.upper()
     
     # ============================================
-    # PRIORIDADE 1: AVALIAÇÃO PSICOLÓGICA
-    # (Vem antes do ASO para evitar que a frase "Atestado de Saúde Ocupacional" no laudo psicológico confunda o sistema)
+    # PRIORIDADE 1: ASO vs AVALIAÇÃO PSICOLÓGICA (A SOLUÇÃO DO CONFLITO)
     # ============================================
+    # Regra do ASO: Tem o título de ASO, MAS a frase "finalidade o atestado" (típica do laudo psicológico) 
+    # NÃO pode estar presente. Assim, o laudo não é "roubado" pelo ASO.
+    if ("ATESTADO DE SAÚDE OCUPACIONAL" in texto or "ATESTADO DE SAUDE OCUPACIONAL" in texto) and \
+       "FINALIDADE O ATESTADO" not in texto and \
+       "FINALIDADE DE ATESTADO" not in texto:
+        return "ASO"
+
+    # Regra da Avaliação: Fica logo abaixo. Se for um ASO de verdade, já foi pego no if acima 
+    # e não vai ser afetado pelo "Aval. Psicológica Psicossocial" no meio dos exames.
     if "AVALIAÇÃO PSICOLÓGICA" in texto or "AVALIACAO PSICOLOGICA" in texto or \
        "PROTOCOLO MÉDICO COMPLEMENTAR PARA AVALIAÇÃO PSICOSOCIAL" in texto or \
        "AVALIAÇÃO PSICOSOCIAL" in texto or "AVALIACAO PSICOSSOCIAL" in texto or \
-       "QUESTIONÁRIO SRQ-20" in texto:
+       "QUESTIONÁRIO SRQ-20" in texto or "AVAL. PSICOLÓGICA" in texto:
         return "AVALIAÇÃO PSICOLÓGICA"
 
     # ============================================
@@ -51,9 +59,6 @@ def classificar_documento(texto_pagina):
     if "FICHA CLÍNICA" in texto or "FICHA CLINICA" in texto or \
        ("ANTECEDENTES FAMILIARES" in texto and "ANTECEDENTES PESSOAIS" in texto):
         return "FICHA CLÍNICA"
-    
-    if "ATESTADO DE SAÚDE OCUPACIONAL" in texto or "ATESTADO DE SAUDE OCUPACIONAL" in texto:
-        return "ASO"
     
     # ============================================
     # PRIORIDADE 3: AVALIAÇÕES ESPECÍFICAS
@@ -80,14 +85,13 @@ def classificar_documento(texto_pagina):
     # ============================================
     # PRIORIDADE 5: EXAMES DE IMAGEM / LAUDOS ESPECÍFICOS
     # ============================================
-    # Usando regex para garantir que "EEG" e "ECG" sejam palavras isoladas
-    if "ELETROENCEFALOGRAMA" in texto or re.search(r'\bEEG\b', texto) or \
+    if "ELETROENCEFALOGRAMA" in texto or "EEG" in texto or \
        "ELETROENCEFALOGRAFIA" in texto or \
        ("RITMO DE BASE" in texto and "HIPERPNEIA" in texto) or \
        ("HIPERPNEIA" in texto and "POTENCIAIS" in texto):
         return "LAUDO ELETROENCEFALOGRAMA"
     
-    if "ELETROCARDIOGRAMA" in texto or re.search(r'\bECG\b', texto) or \
+    if "ELETROCARDIOGRAMA" in texto or "ECG" in texto or \
        "LAUDO DE ELETROCARDIOGRAMA" in texto or \
        ("RITMO SINUSAL" in texto and "EIXO QRS" in texto) or \
        ("ECG DE REPOUSO" in texto):
@@ -127,7 +131,7 @@ def classificar_documento(texto_pagina):
         "ACIDO METIL HIPURICO", "METILHIPÚRICO", "METILHIPURICO", "HIPÚRICO", "HIPURICO",
         "CROMO", "MANGANÊS", "MANGANES", "CHUMBO", "COBALTO", "CADMIO", "CÁDMIO",
         "MERCÚRIO", "MERCURIO", "ARSÊNICO", "ARSENICO", "NÍQUEL", "NIQUEL",
-        "FENOL", "FÊNOL", "TRICLOROCOMPOSTOS", "ICP-MS"
+        "FENOL", "FÊNOL", "TRICLOROCOMPOSTOS"
     ]) or ("CREATININA" in texto and ("G/G" in texto or "INÍCIO DE JORNADA" in texto or "INICIO DE JORNADA" in texto)):
         return "EXAME TOXICOLÓGICO ÁCIDOS E METAIS"
     
@@ -151,7 +155,6 @@ def classificar_documento(texto_pagina):
     return None
 
 def extrair_subtipo_exame(texto_pagina):
-    """Extrai o subtipo específico do exame para quebrar laboratoriais separados."""
     if not texto_pagina:
         return None
     texto = texto_pagina.upper()
@@ -172,7 +175,7 @@ def extrair_subtipo_exame(texto_pagina):
         return "ACIDOS_HIPURICOS"
     if "CROMO" in texto:
         return "CROMO"
-    if "MANGANÊS" in texto or "MANGANES" in texto or "ICP-MS" in texto:
+    if "MANGANÊS" in texto or "MANGANES" in texto:
         return "MANGANES"
     if "GRUPO SANGUINEO" in texto or "GRUPO SANGUÍNEO" in texto or ("ABO" in texto and "RH" in texto):
         return "TIPAGEM_SANGUINEA"
@@ -250,16 +253,16 @@ if arquivo_enviado is not None:
                     deve_quebrar = False
                     
                     if documento_atual:
-                        # Regra 1: O tipo de documento mudou (ex: de EEG para Toxícológico)
                         if tipo_detectado and tipo_doc_atual and tipo_detectado != tipo_doc_atual:
                             deve_quebrar = True
                         
-                        # Regra 2: NOVA REGRA ROBUSTA (Salva o Manganês do EEG)
-                        # Se o subtipo mudar, quebra na hora, mesmo que o tipo principal não tenha sido pego perfeitamente
-                        elif subtipo_detectado and subtipo_detectado != subtipo_atual:
-                            deve_quebrar = True
+                        elif (tipo_detectado and tipo_doc_atual and 
+                              tipo_detectado == tipo_doc_atual and
+                              tipo_detectado in ["EXAME HEMOGRAMA", "EXAME BIOQUÍMICA SANGUÍNEA", 
+                                                "EXAME TOXICOLÓGICO ÁCIDOS E METAIS", "LAUDO TIPAGEM SANGUINEA"]):
+                            if subtipo_detectado and subtipo_atual and subtipo_detectado != subtipo_atual:
+                                deve_quebrar = True
                         
-                        # Regra 3: Mudou o paciente
                         elif (nome_detectado and 
                               nome_detectado != nome_colaborador_atual and
                               tipo_doc_atual not in ["ASO", "FICHA CLÍNICA", "AVALIAÇÃO PSICOLÓGICA", "ENCAMINHAMENTO DA MEDICINA OCUPACIONAL"]):
@@ -289,7 +292,6 @@ if arquivo_enviado is not None:
                         tipo_doc_atual = None
                         subtipo_atual = None
 
-                    # Atualiza os tipos para a próxima iteração
                     if tipo_detectado:
                         tipo_doc_atual = tipo_detectado
                     if subtipo_detectado:
@@ -297,7 +299,6 @@ if arquivo_enviado is not None:
 
                     documento_atual.append(reader_pypdf.pages[idx])
 
-                # Salva o último documento que ficou na memória
                 if documento_atual:
                     writer = PdfWriter()
                     for p in documento_atual:
