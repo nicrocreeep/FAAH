@@ -107,42 +107,40 @@ def classificar_documento(texto_pagina):
         return "LAUDO TIPAGEM SANGUINEA"
     
     # ============================================
-    # PRIORIDADE 5: EXAMES TOXICOLÓGICOS / METAIS / URINA
+    # PRIORIDADE 5: EXAMES LABORATORIAIS (HEMOGRAMA / BIOQUÍMICA / TOXICOLÓGICO)
     # ============================================
+    # Hemograma Completo / Eritrograma / Leucograma
+    if any(x in texto for x in [
+        "HEMOGRAMA", "ERITOGRAMA", "LEUCOGRAMA",
+        "SÉRIE VERMELHA", "SERIE VERMELHA",
+        "SÉRIE BRANCA", "SERIE BRANCA"
+    ]) or (any(x in texto for x in ["HEMÁCIAS", "HEMACIAS", "HEMATÓCRITO", "HEMATOCRITO"]) and 
+           any(y in texto for y in ["LEUCÓCITOS", "LEUCOCITOS", "PLAQUETAS"])):
+        return "EXAME HEMOGRAMA"
+
+    # Toxicológico / Ácidos / Metais em Urina ou Sangue
     if any(x in texto for x in [
         "ÁCIDO HIPÚRICO", "ACIDO HIPURICO", "ÁCIDO METIL HIPÚRICO", 
         "ACIDO METIL HIPURICO", "METILHIPÚRICO", "METILHIPURICO", "HIPÚRICO", "HIPURICO",
         "CROMO", "MANGANÊS", "MANGANES", "CHUMBO", "COBALTO", "CADMIO", "CÁDMIO",
         "MERCÚRIO", "MERCURIO", "ARSÊNICO", "ARSENICO", "NÍQUEL", "NIQUEL",
         "FENOL", "FÊNOL", "TRICLOROCOMPOSTOS"
-    ]):
+    ]) or ("CREATININA" in texto and ("G/G" in texto or "INÍCIO DE JORNADA" in texto or "INICIO DE JORNADA" in texto)):
         return "EXAME TOXICOLÓGICO ÁCIDOS E METAIS"
     
-    if "CREATININA" in texto and ("G/G" in texto or "G/G CREATININA" in texto or "INÍCIO DE JORNADA" in texto):
-        return "EXAME TOXICOLÓGICO ÁCIDOS E METAIS"
-    
-    # ============================================
-    # PRIORIDADE 6: EXAMES LABORATORIAIS SANGUÍNEOS
-    # ============================================
-    if "HEMOGRAMA COMPLETO" in texto or \
-       ("HEMOGRAMA" in texto and any(x in texto for x in [
-           "HEMACIAS", "HEMOGLOBINA", "HEMATOCRITO", "HEMATÓCRITO",
-           "LEUCOCITOS", "LEUCÓCITOS", "PLAQUETAS", "V.C.M", "H.C.M", "RDW"
-       ])):
-        return "EXAME HEMOGRAMA"
-    
+    # Bioquímica Sanguínea
     if any(x in texto for x in [
         "GAMA GT", "GAMA-GLUTAMIL", "GGT", "GLUTAMILTRANSFERASE", "GLUTAMIL TRANSFERASE",
         "TGO", "TRANSAMINASE OXALACETICA", "TRANSAMINASE OXALACÉTICA", "ASPARTATO AMINOTRANSFERASE",
         "TGP", "TRANSAMINASE PIRUVICA", "TRANSAMINASE PIRÚVICA", "ALANINA AMINOTRANSFERASE",
-        "GLICOSE", "GLICOSE JEJUM", "CREATININA", "UREIA", "ÁCIDO ÚRICO"
+        "GLICOSE", "GLICOSE JEJUM", "CREATININA", "UREIA", "ÁCIDO ÚRICO", "ACIDO URICO"
     ]):
         return "EXAME BIOQUÍMICA SANGUÍNEA"
     
     # ============================================
-    # PRIORIDADE 7: GENÉRICOS DE EXAMES
+    # PRIORIDADE 6: GENÉRICOS DE EXAMES
     # ============================================
-    if "RESULTADO DE EXAMES" in texto or "LABORATÓRIO" in texto or "LABORATORIO" in texto:
+    if "RESULTADO DE EXAMES" in texto or "LAUDO DE EXAME" in texto:
         return "RESULTADO DE EXAMES"
     
     if "EXAME" in texto or "LAUDO" in texto:
@@ -156,7 +154,7 @@ def extrair_subtipo_exame(texto_pagina):
         return None
     texto = texto_pagina.upper()
     
-    if "HEMOGRAMA COMPLETO" in texto or ("HEMOGRAMA" in texto and "HEMACIAS" in texto):
+    if any(x in texto for x in ["HEMOGRAMA", "ERITOGRAMA", "LEUCOGRAMA", "SÉRIE VERMELHA", "SERIE VERMELHA"]):
         return "HEMOGRAMA"
     if "GAMA GT" in texto or "GGT" in texto:
         return "GAMA_GT"
@@ -184,7 +182,6 @@ def extrair_nome_colaborador(texto_pagina):
         
     texto = texto_pagina.upper()
     
-    # Expressões com dois-pontos estritamente obrigatórios para evitar falsos positivos no corpo de textos
     padroes = [
         r'AVALIADO\s*:\s*([A-ZÁÉÍÓÚÃÕÇÂÊÎÔÛ\s]{3,60})(?=\n|DATA|CARGO|CPF|RG|\.|$)',
         r'PACIENTE\s*:\s*([A-ZÁÉÍÓÚÃÕÇÂÊÎÔÛ\s]{3,60})(?=\n|DATA|CPF|RG|IDADE|SEXO|CONVÊNIO|CONVENIO|\.|$)',
@@ -215,7 +212,6 @@ def extrair_nome_colaborador(texto_pagina):
             nome_final = re.sub(r'\s+', ' ', nome_limpo).upper().strip()
             nome_final = re.sub(r'^\d+[\s\-–]+', '', nome_final)
             
-            # Validação para ignorar trechos de texto que não são nomes de pessoas
             if len(nome_final) > 3 and not any(p in nome_final for p in palavras_proibidas):
                 return nome_final
                 
