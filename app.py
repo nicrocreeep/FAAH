@@ -30,7 +30,17 @@ def classificar_documento(texto_pagina):
     texto = texto_pagina.upper()
     
     # ============================================
-    # PRIORIDADE 1: DOCUMENTOS ESTRUTURAIS/FICHAS
+    # PRIORIDADE 1: AVALIAÇÃO PSICOLÓGICA
+    # (Vem antes do ASO para evitar que a frase "Atestado de Saúde Ocupacional" no laudo psicológico confunda o sistema)
+    # ============================================
+    if "AVALIAÇÃO PSICOLÓGICA" in texto or "AVALIACAO PSICOLOGICA" in texto or \
+       "PROTOCOLO MÉDICO COMPLEMENTAR PARA AVALIAÇÃO PSICOSOCIAL" in texto or \
+       "AVALIAÇÃO PSICOSOCIAL" in texto or "AVALIACAO PSICOSSOCIAL" in texto or \
+       "QUESTIONÁRIO SRQ-20" in texto:
+        return "AVALIAÇÃO PSICOLÓGICA"
+
+    # ============================================
+    # PRIORIDADE 2: DOCUMENTOS ESTRUTURAIS/FICHAS
     # ============================================
     if "ENCAMINHAMENTO DA MEDICINA OCUPACIONAL" in texto or \
        ("ENCAMINHAMENTO" in texto and "MEDICINA" in texto) or \
@@ -46,14 +56,8 @@ def classificar_documento(texto_pagina):
         return "ASO"
     
     # ============================================
-    # PRIORIDADE 2: AVALIAÇÕES ESPECÍFICAS
+    # PRIORIDADE 3: AVALIAÇÕES ESPECÍFICAS
     # ============================================
-    if "AVALIAÇÃO PSICOLÓGICA" in texto or "AVALIACAO PSICOLOGICA" in texto or \
-       "PROTOCOLO MÉDICO COMPLEMENTAR PARA AVALIAÇÃO PSICOSOCIAL" in texto or \
-       "AVALIAÇÃO PSICOSOCIAL" in texto or "AVALIACAO PSICOSSOCIAL" in texto or \
-       "QUESTIONÁRIO SRQ-20" in texto:
-        return "AVALIAÇÃO PSICOLÓGICA"
-
     if any(x in texto for x in [
         "AVALIAÇÃO DO EQUILÍBRIO", "AVALIACAO DO EQUILIBRIO",
         "FUNÇÃO CEREBELAR", "FUNCAO CEREBELAR",
@@ -65,7 +69,7 @@ def classificar_documento(texto_pagina):
         return "EXAME AVALIAÇÃO DO EQUILÍBRIO"
     
     # ============================================
-    # PRIORIDADE 3: EXAMES VISUAIS
+    # PRIORIDADE 4: EXAMES VISUAIS
     # ============================================
     if "ACUIDADE VISUAL" in texto or "OD:20/" in texto or "OE:20/" in texto or \
        "SNELLEN" in texto or "EYETEST" in texto:
@@ -74,15 +78,16 @@ def classificar_documento(texto_pagina):
         return "EXAME SENSIBILIDADE E CORES"
     
     # ============================================
-    # PRIORIDADE 4: EXAMES DE IMAGEM / LAUDOS ESPECÍFICOS
+    # PRIORIDADE 5: EXAMES DE IMAGEM / LAUDOS ESPECÍFICOS
     # ============================================
-    if "ELETROENCEFALOGRAMA" in texto or "EEG" in texto or \
+    # Usando regex para garantir que "EEG" e "ECG" sejam palavras isoladas
+    if "ELETROENCEFALOGRAMA" in texto or re.search(r'\bEEG\b', texto) or \
        "ELETROENCEFALOGRAFIA" in texto or \
        ("RITMO DE BASE" in texto and "HIPERPNEIA" in texto) or \
        ("HIPERPNEIA" in texto and "POTENCIAIS" in texto):
         return "LAUDO ELETROENCEFALOGRAMA"
     
-    if "ELETROCARDIOGRAMA" in texto or "ECG" in texto or \
+    if "ELETROCARDIOGRAMA" in texto or re.search(r'\bECG\b', texto) or \
        "LAUDO DE ELETROCARDIOGRAMA" in texto or \
        ("RITMO SINUSAL" in texto and "EIXO QRS" in texto) or \
        ("ECG DE REPOUSO" in texto):
@@ -107,9 +112,8 @@ def classificar_documento(texto_pagina):
         return "LAUDO TIPAGEM SANGUINEA"
     
     # ============================================
-    # PRIORIDADE 5: EXAMES LABORATORIAIS (HEMOGRAMA / BIOQUÍMICA / TOXICOLÓGICO)
+    # PRIORIDADE 6: EXAMES LABORATORIAIS (HEMOGRAMA / BIOQUÍMICA / TOXICOLÓGICO)
     # ============================================
-    # Hemograma Completo / Eritrograma / Leucograma
     if any(x in texto for x in [
         "HEMOGRAMA", "ERITOGRAMA", "LEUCOGRAMA",
         "SÉRIE VERMELHA", "SERIE VERMELHA",
@@ -118,17 +122,15 @@ def classificar_documento(texto_pagina):
            any(y in texto for y in ["LEUCÓCITOS", "LEUCOCITOS", "PLAQUETAS"])):
         return "EXAME HEMOGRAMA"
 
-    # Toxicológico / Ácidos / Metais em Urina ou Sangue
     if any(x in texto for x in [
         "ÁCIDO HIPÚRICO", "ACIDO HIPURICO", "ÁCIDO METIL HIPÚRICO", 
         "ACIDO METIL HIPURICO", "METILHIPÚRICO", "METILHIPURICO", "HIPÚRICO", "HIPURICO",
         "CROMO", "MANGANÊS", "MANGANES", "CHUMBO", "COBALTO", "CADMIO", "CÁDMIO",
         "MERCÚRIO", "MERCURIO", "ARSÊNICO", "ARSENICO", "NÍQUEL", "NIQUEL",
-        "FENOL", "FÊNOL", "TRICLOROCOMPOSTOS"
+        "FENOL", "FÊNOL", "TRICLOROCOMPOSTOS", "ICP-MS"
     ]) or ("CREATININA" in texto and ("G/G" in texto or "INÍCIO DE JORNADA" in texto or "INICIO DE JORNADA" in texto)):
         return "EXAME TOXICOLÓGICO ÁCIDOS E METAIS"
     
-    # Bioquímica Sanguínea
     if any(x in texto for x in [
         "GAMA GT", "GAMA-GLUTAMIL", "GGT", "GLUTAMILTRANSFERASE", "GLUTAMIL TRANSFERASE",
         "TGO", "TRANSAMINASE OXALACETICA", "TRANSAMINASE OXALACÉTICA", "ASPARTATO AMINOTRANSFERASE",
@@ -138,7 +140,7 @@ def classificar_documento(texto_pagina):
         return "EXAME BIOQUÍMICA SANGUÍNEA"
     
     # ============================================
-    # PRIORIDADE 6: GENÉRICOS DE EXAMES
+    # PRIORIDADE 7: GENÉRICOS DE EXAMES
     # ============================================
     if "RESULTADO DE EXAMES" in texto or "LAUDO DE EXAME" in texto:
         return "RESULTADO DE EXAMES"
@@ -170,7 +172,7 @@ def extrair_subtipo_exame(texto_pagina):
         return "ACIDOS_HIPURICOS"
     if "CROMO" in texto:
         return "CROMO"
-    if "MANGANÊS" in texto or "MANGANES" in texto:
+    if "MANGANÊS" in texto or "MANGANES" in texto or "ICP-MS" in texto:
         return "MANGANES"
     if "GRUPO SANGUINEO" in texto or "GRUPO SANGUÍNEO" in texto or ("ABO" in texto and "RH" in texto):
         return "TIPAGEM_SANGUINEA"
@@ -248,16 +250,16 @@ if arquivo_enviado is not None:
                     deve_quebrar = False
                     
                     if documento_atual:
+                        # Regra 1: O tipo de documento mudou (ex: de EEG para Toxícológico)
                         if tipo_detectado and tipo_doc_atual and tipo_detectado != tipo_doc_atual:
                             deve_quebrar = True
                         
-                        elif (tipo_detectado and tipo_doc_atual and 
-                              tipo_detectado == tipo_doc_atual and
-                              tipo_detectado in ["EXAME HEMOGRAMA", "EXAME BIOQUÍMICA SANGUÍNEA", 
-                                                "EXAME TOXICOLÓGICO ÁCIDOS E METAIS", "LAUDO TIPAGEM SANGUINEA"]):
-                            if subtipo_detectado and subtipo_atual and subtipo_detectado != subtipo_atual:
-                                deve_quebrar = True
+                        # Regra 2: NOVA REGRA ROBUSTA (Salva o Manganês do EEG)
+                        # Se o subtipo mudar, quebra na hora, mesmo que o tipo principal não tenha sido pego perfeitamente
+                        elif subtipo_detectado and subtipo_detectado != subtipo_atual:
+                            deve_quebrar = True
                         
+                        # Regra 3: Mudou o paciente
                         elif (nome_detectado and 
                               nome_detectado != nome_colaborador_atual and
                               tipo_doc_atual not in ["ASO", "FICHA CLÍNICA", "AVALIAÇÃO PSICOLÓGICA", "ENCAMINHAMENTO DA MEDICINA OCUPACIONAL"]):
@@ -287,6 +289,7 @@ if arquivo_enviado is not None:
                         tipo_doc_atual = None
                         subtipo_atual = None
 
+                    # Atualiza os tipos para a próxima iteração
                     if tipo_detectado:
                         tipo_doc_atual = tipo_detectado
                     if subtipo_detectado:
@@ -294,6 +297,7 @@ if arquivo_enviado is not None:
 
                     documento_atual.append(reader_pypdf.pages[idx])
 
+                # Salva o último documento que ficou na memória
                 if documento_atual:
                     writer = PdfWriter()
                     for p in documento_atual:
