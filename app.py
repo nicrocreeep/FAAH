@@ -32,8 +32,14 @@ def classificar_documento(texto_pagina):
     
     # ============================================
     # PRIORIDADE 1: DOCUMENTOS ESTRUTURAIS/FICHAS
-    # (Devem vir antes porque contêm listas de exames solicitados)
+    # (Devem vir ANTES porque contêm listas de exames solicitados/agendados)
     # ============================================
+    if "ENCAMINHAMENTO DA MEDICINA OCUPACIONAL" in texto or \
+       ("ENCAMINHAMENTO" in texto and "MEDICINA" in texto) or \
+       ("ENCAMINHAMENTO" in texto and "PASS AÚRA" in texto) or \
+       ("RELAÇÃO DE EXAMES" in texto and "ENCAMINHAMENTO" in texto):
+        return "ENCAMINHAMENTO DA MEDICINA OCUPACIONAL"
+
     if "FICHA CLÍNICA" in texto or "FICHA CLINICA" in texto or \
        ("ANTECEDENTES FAMILIARES" in texto and "ANTECEDENTES PESSOAIS" in texto):
         return "FICHA CLÍNICA"
@@ -50,7 +56,7 @@ def classificar_documento(texto_pagina):
        "QUESTIONÁRIO SRQ-20" in texto:
         return "AVALIAÇÃO PSICOLÓGICA"
 
-    # NOVO: Avaliação do Equilíbrio / Vestibular / Cerebelar (inclui Romberg, VPPB, etc.)
+    # Avaliação do Equilíbrio / Vestibular / Cerebelar (inclui Romberg, VPPB, etc.)
     if any(x in texto for x in [
         "AVALIAÇÃO DO EQUILÍBRIO", "AVALIACAO DO EQUILIBRIO",
         "FUNÇÃO CEREBELAR", "FUNCAO CEREBELAR",
@@ -118,7 +124,6 @@ def classificar_documento(texto_pagina):
     # ============================================
     # PRIORIDADE 6: EXAMES LABORATORIAIS SANGUÍNEOS
     # ============================================
-    # Hemograma completo (evita falso positivo em fichas clínicas que listam exames)
     if "HEMOGRAMA COMPLETO" in texto or \
        ("HEMOGRAMA" in texto and any(x in texto for x in [
            "HEMACIAS", "HEMOGLOBINA", "HEMATOCRITO", "HEMATÓCRITO",
@@ -126,7 +131,6 @@ def classificar_documento(texto_pagina):
        ])):
         return "EXAME HEMOGRAMA"
     
-    # Bioquímica sanguínea (GAMA GT, TGO, TGP, Glicose) - mas sem Hemograma
     if any(x in texto for x in [
         "GAMA GT", "GAMA-GLUTAMIL", "GGT", "GLUTAMILTRANSFERASE", "GLUTAMIL TRANSFERASE",
         "TGO", "TRANSAMINASE OXALACETICA", "TRANSAMINASE OXALACÉTICA", "ASPARTATO AMINOTRANSFERASE",
@@ -136,16 +140,11 @@ def classificar_documento(texto_pagina):
         return "EXAME BIOQUÍMICA SANGUÍNEA"
     
     # ============================================
-    # PRIORIDADE 7: ENCAMINHAMENTOS E GENÉRICOS
+    # PRIORIDADE 7: GENÉRICOS DE EXAMES
     # ============================================
-    if "ENCAMINHAMENTO DA MEDICINA OCUPACIONAL" in texto or \
-       ("ENCAMINHAMENTO" in texto and "MEDICINA" in texto):
-        return "ENCAMINHAMENTO DA MEDICINA OCUPACIONAL"
-    
     if "RESULTADO DE EXAMES" in texto:
         return "RESULTADO DE EXAMES"
     
-    # Fallback
     if "EXAME" in texto or "LAUDO" in texto:
         return "RESULTADO DE EXAMES"
     
@@ -181,33 +180,15 @@ def extrair_nome_colaborador(texto_pagina):
         
     texto = texto_pagina.upper()
     
-    # Padroes melhorados e ordenados por especificidade
     padroes = [
-        # Avaliação Psicológica / Equilíbrio: AVALIADO: Carlos Gabriel Jesus dos Santos
         r'AVALIADO[:\s]+([A-ZÁÉÍÓÚÃÕÇÂÊÎÔÛ\s]{3,60})(?=\n|DATA|CARGO|CPF|RG|$)',
-        
-        # Audiometria: Funcionário/Paciente: CARLOS GABRIEL JESUS DOS SANTOS
         r'FUNCIONÁRIO/PACIENTE[:\s]+([A-ZÁÉÍÓÚÃÕÇÂÊÎÔÛ\s]{3,60})(?=\n|DATA|IDADE|SEXO|EMPRESA|$)',
-        
-        # Formato: Funcionário (Código / Nome) \n 193 / Antonio Marcos...
         r'FUNCIONÁRIO\s*\(CÓDIGO\s*/\s*NOME\)\s*\n?\s*\d+\s*/\s*([A-ZÁÉÍÓÚÃÕÇÂÊÎÔÛ\s]{3,60})(?=\n|EMPRESA|RG|CPF|$)',
-        
-        # Formato: Funcionário: 193 - Antonio Marcos...
         r'FUNCIONÁRIO:\s*\d+\s*-\s*([A-ZÁÉÍÓÚÃÕÇÂÊÎÔÛ\s]{3,60})(?=\n|UNIDADE|CNPJ|RG|CPF|$)',
-        
-        # Formato SOC/Labs: Nome........:134497-ANTONIO MARCOS SIQUEIRA DE SOUZA
         r'NOME\.{2,}\s*:\s*\d*[-–]?\s*([A-ZÁÉÍÓÚÃÕÇÂÊÎÔÛ\s]{3,60})(?=\n|CPF|DATA|SEXO|$)',
-        
-        # Formato simples: Nome: ANTONIO MARCOS...
         r'NOME\s*:\s*([A-ZÁÉÍÓÚÃÕÇÂÊÎÔÛ\s]{3,60})(?=\n|CPF|RG|DATA|SEXO|EMPRESA|$)',
-        
-        # Genéricos
         r'(?:COLABORADOR|PACIENTE|CANDIDATO|EMPREGADO|NOME DO TRABALHADOR|SR\(A\))\s*:\s*([A-ZÁÉÍÓÚÃÕÇÂÊÎÔÛ\s]{3,60})(?=\n|CPF|RG|DATA|SEXO|$)',
-        
-        # Laudo médico: Paciente : CARLOS GABRIEL JESUS DOS SANTOS
         r'PACIENTE\s*:\s*([A-ZÁÉÍÓÚÃÕÇÂÊÎÔÛ\s]{3,60})(?=\n|DATA|CPF|RG|IDADE|SEXO|$)',
-        
-        # Cabeçalho ECG/EEG: ANTONIO MARCOS SIQUEIRA DE SOUZA - Código do exame
         r'^([A-ZÁÉÍÓÚÃÕÇÂÊÎÔÛ\s]{3,50})\s*-\s*CÓDIGO\s+DO\s+EXAME',
     ]
     
@@ -215,16 +196,14 @@ def extrair_nome_colaborador(texto_pagina):
         match = re.search(padrao, texto_pagina, re.IGNORECASE | re.MULTILINE)
         if match:
             nome = match.group(1).split('\n')[0].strip()
-            # Remove sujeira comum que vem grudada no nome
             stops = ['SEXO', 'CARGO', 'CPF', 'RG', 'DATA', 'IDADE', 'PIS', 'CTPS', 
                      'CADASTRO', 'ATEND', 'UNIDADE', 'SETOR', 'EMPRESA', 'CNPJ', 
                      'MÉDICO', 'MEDICO', 'PROTOCOLO', 'CONVÊNIO', 'CONVENIO']
             for stop in stops:
-                nome = re.split(rf'\\b{stop}\\b', nome, flags=re.IGNORECASE)[0]
-            nome_limpo = re.sub(r'[\\\\/*?:"<>|]', '', nome)
-            nome_final = re.sub(r'\\s+', ' ', nome_limpo).upper().strip()
-            # Remove números/códigos soltos no início (ex: 134497-)
-            nome_final = re.sub(r'^\\d+[\\s\\-–]+', '', nome_final)
+                nome = re.split(rf'\b{stop}\b', nome, flags=re.IGNORECASE)[0]
+            nome_limpo = re.sub(r'[\\/*?:"<>|]', '', nome)
+            nome_final = re.sub(r'\s+', ' ', nome_limpo).upper().strip()
+            nome_final = re.sub(r'^\d+[\s\-–]+', '', nome_final)
             if len(nome_final) > 3:
                 return nome_final
     return None
@@ -254,22 +233,15 @@ if arquivo_enviado is not None:
                     nome_detectado = extrair_nome_colaborador(texto)
                     subtipo_detectado = extrair_subtipo_exame(texto)
 
-                    # Propaga nome do colaborador
                     if nome_detectado:
                         nome_colaborador_atual = nome_detectado
 
-                    # ==========================================
-                    # LÓGICA DE QUEBRA DE DOCUMENTO
-                    # ==========================================
                     deve_quebrar = False
                     
                     if documento_atual:
-                        # 1. Mudou o tipo principal detectado
                         if tipo_detectado and tipo_doc_atual and tipo_detectado != tipo_doc_atual:
                             deve_quebrar = True
                         
-                        # 2. Mudou o subtipo dentro de exames laboratoriais
-                        # (ex: Hemograma -> GAMA GT, ou Tipagem -> Hemograma)
                         elif (tipo_detectado and tipo_doc_atual and 
                               tipo_detectado == tipo_doc_atual and
                               tipo_detectado in ["EXAME HEMOGRAMA", "EXAME BIOQUÍMICA SANGUÍNEA", 
@@ -277,21 +249,12 @@ if arquivo_enviado is not None:
                             if subtipo_detectado and subtipo_atual and subtipo_detectado != subtipo_atual:
                                 deve_quebrar = True
                         
-                        # 3. Mudou o nome do colaborador no meio do lote (novo funcionário)
-                        #    Exceto para documentos que podem ter referências a médicos/avalistas
                         elif (nome_detectado and 
                               nome_detectado != nome_colaborador_atual and
-                              tipo_doc_atual not in ["ASO", "FICHA CLÍNICA", "AVALIAÇÃO PSICOLÓGICA"]):
-                            deve_quebrar = True
-                        
-                        # 4. Página parece ser cabeçalho de novo documento de lab/imagem
-                        #    (tem nome + tipo próprio, e o documento atual já tem páginas)
-                        elif (nome_detectado and tipo_detectado and 
-                              tipo_doc_atual and tipo_detectado != tipo_doc_atual):
+                              tipo_doc_atual not in ["ASO", "FICHA CLÍNICA", "AVALIAÇÃO PSICOLÓGICA", "ENCAMINHAMENTO DA MEDICINA OCUPACIONAL"]):
                             deve_quebrar = True
 
                     if deve_quebrar:
-                        # ---- SALVAR DOCUMENTO ANTERIOR ----
                         writer = PdfWriter()
                         for p in documento_atual:
                             writer.add_page(p)
@@ -311,14 +274,10 @@ if arquivo_enviado is not None:
                         
                         zip_file.writestr(nome_final, pdf_out.getvalue())
                         
-                        # ---- RESETAR ESTADO PARA NOVO DOCUMENTO ----
                         documento_atual = []
                         tipo_doc_atual = None
                         subtipo_atual = None
-                        # nome_colaborador_atual mantém para propagação, 
-                        # mas será sobrescrito se nome_detectado na próxima página
 
-                    # Atualiza tipo e subtipo se detectados nesta página
                     if tipo_detectado:
                         tipo_doc_atual = tipo_detectado
                     if subtipo_detectado:
@@ -326,7 +285,6 @@ if arquivo_enviado is not None:
 
                     documento_atual.append(reader_pypdf.pages[idx])
 
-                # ---- FECHA ÚLTIMO DOCUMENTO ----
                 if documento_atual:
                     writer = PdfWriter()
                     for p in documento_atual:
